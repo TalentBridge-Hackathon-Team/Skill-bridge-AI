@@ -1,0 +1,8 @@
+{
+  "Records": [
+    {
+      "messageId": "manual-test-1",
+      "body": "{\"type\":\"resume.uploaded\",\"bucket\":\"skillbridge-resumes\",\"key\":\"test/localstack-test.txt\"}"
+    }
+  ]
+}

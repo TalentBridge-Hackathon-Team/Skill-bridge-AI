@@ -1,0 +1,64 @@
+services:
+  localstack:
+    image: localstack/localstack
+    container_name: skillbridge-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:?Set your token in .env}
+      PERSISTENCE: "1"
+    volumes:
+      - "localstack_data:/var/lib/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./localstack-init:/etc/localstack/init/ready.d"
+      - "./lambda/resume_processor:/opt/code/resume_processor"
+    networks:
+      - skillbridge-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: skillbridge-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_SQS_RESUME_QUEUE_URL=http://localstack:4566/000000000000/skillbridge-resume-processing
+      - ALLOWED_HOSTS=localhost,127.0.0.1,backend,host.docker.internal
+    volumes:
+      - "./backend:/app"
+      - "/app/venv"
+    depends_on:
+      - localstack
+    networks:
+      - skillbridge-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: skillbridge-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000/api
+    volumes:
+      - "./frontend:/app"
+      - "/app/node_modules"
+    depends_on:
+      - backend
+    networks:
+      - skillbridge-net
+
+volumes:
+  localstack_data:
+
+networks:
+  skillbridge-net:
+    driver: bridge

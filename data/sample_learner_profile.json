@@ -1,0 +1,43 @@
+{
+  "user_id": "usr_demo_001",
+  "name": "Alex Morgan",
+  "target_role": "Junior Backend Developer",
+  "education": "B.Sc. in Computer Science (Final Year)",
+  "experience_level": "Entry Level / Graduate",
+  "skills": [
+    "Python",
+    "Django REST Framework",
+    "PostgreSQL",
+    "Git",
+    "Docker Basics"
+  ],
+  "evidence": [
+    {
+      "evidence_id": "evi_001",
+      "skill_name": "Django REST Framework",
+      "evidence_type": "project",
+      "title": "E-Commerce Order Management API",
+      "reference": "https://github.com/alex-morgan/order-api-django",
+      "description": "Built a modular Django REST API with custom viewsets, serializers, JWT authentication, and pagination handling 500+ mock transactions.",
+      "review_status": "verified"
+    },
+    {
+      "evidence_id": "evi_002",
+      "skill_name": "Python",
+      "evidence_type": "project",
+      "title": "Data Pipeline Script",
+      "reference": "https://github.com/alex-morgan/py-etl-tool",
+      "description": "Python CLI tool for batch CSV normalization and clean ingestion into relational tables.",
+      "review_status": "verified"
+    },
+    {
+      "evidence_id": "evi_003",
+      "skill_name": "PostgreSQL",
+      "evidence_type": "self_reported",
+      "title": "Self-reported Database Knowledge",
+      "reference": "",
+      "description": "Understands joins, indexes, and basic relational schema design from university coursework.",
+      "review_status": "unverified"
+    }
+  ]
+}

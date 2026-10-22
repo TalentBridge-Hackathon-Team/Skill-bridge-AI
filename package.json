@@ -1,0 +1,19 @@
+{
+  "name": "skillbridge-ai",
+  "version": "1.0.0",
+  "description": "SkillBridge AI - Evidence-based & deadline-aware career acceleration platform",
+  "private": true,
+  "scripts": {
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "backend:migrate": "python backend/manage.py migrate",
+    "backend:dev": "python backend/manage.py runserver 0.0.0.0:8000",
+    "backend:test": "cd backend && python -m pytest",
+    "frontend:install": "cd frontend && npm install",
+    "frontend:dev": "cd frontend && npm run dev",
+    "frontend:test": "cd frontend && npm test",
+    "frontend:build": "cd frontend && npm run build",
+    "test:e2e": "cd frontend && npx playwright test"
+  }
+}

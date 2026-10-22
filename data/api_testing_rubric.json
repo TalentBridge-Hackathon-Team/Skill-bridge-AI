@@ -1,0 +1,35 @@
+{
+  "assessment_id": "asm_api_testing_01",
+  "title": "REST API Testing & Verification",
+  "task_type": "api_testing",
+  "target_skill": "API Testing",
+  "total_points": 10,
+  "instructions": "Given a sample REST endpoint (e.g. POST /api/v1/payments/orders), design and test: (1) a successful request with valid payload, (2) an invalid input with missing/malformed fields, and (3) an unauthorized request. Submit your test cases, assertions, expected outcomes, and an explanation of the test coverage.",
+  "rubric": [
+    {
+      "criterion": "Successful request",
+      "points": 2,
+      "description": "Tests a valid request and validates expected HTTP 200/201 response and payload schema."
+    },
+    {
+      "criterion": "Invalid input",
+      "points": 2,
+      "description": "Covers missing or malformed data and expected 400 Bad Request error behavior."
+    },
+    {
+      "criterion": "Authorization",
+      "points": 3,
+      "description": "Checks that unauthenticated or unauthorized access is properly rejected with 401/403."
+    },
+    {
+      "criterion": "Assertions and clarity",
+      "points": 2,
+      "description": "Tests include clear, meaningful assertions on status code, response time, and payload."
+    },
+    {
+      "criterion": "Explanation",
+      "points": 1,
+      "description": "Learner clearly explains what the test suite verifies and why it ensures API integrity."
+    }
+  ]
+}

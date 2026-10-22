@@ -1,0 +1,25 @@
+Title: Junior Backend Developer / Backend Intern
+Company: FinTech Velocity Labs
+Location: Remote / Hybrid
+
+About the Role:
+We are looking for an ambitious Junior Backend Developer to join our core engineering team. You will assist in building scalable, secure backend services and RESTful APIs that power our financial transactions engine.
+
+Key Responsibilities:
+- Design, build, and maintain robust RESTful APIs in Python (Django / FastAPI).
+- Write and optimize database queries using PostgreSQL and relational ORM tools.
+- Write unit, integration, and end-to-end API tests to maintain high test coverage and reliability.
+- Implement secure authentication and authorization mechanisms (JWT, OAuth2, session management).
+- Participate in code reviews, API documentation (Swagger/OpenAPI), and Agile sprints.
+
+Required Qualifications & Skills:
+- Foundational understanding of backend web architectures and REST principles.
+- Proficiency in Python and familiarity with web frameworks such as Django or Flask.
+- Experience with relational databases, writing SQL queries, and data modeling (PostgreSQL preferred).
+- Hands-on experience writing automated tests (e.g., pytest, unittest, or Postman API testing).
+- Knowledge of Git version control and collaborative workflows.
+
+Preferred Qualifications:
+- Familiarity with cloud platforms such as AWS (Lambda, API Gateway, S3, RDS).
+- Understanding of Docker containerization and CI/CD pipelines.
+- Basic understanding of API security best practices (rate limiting, input validation, CORS).
