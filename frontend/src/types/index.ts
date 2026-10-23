@@ -16,6 +16,40 @@ export type FeasibilityBand =
   | 'Not feasible as scoped'
   | 'Insufficient information';
 
+// ── Auth types ──────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  email: string;
+  full_name: string;
+  date_joined: string;
+}
+
+export interface AuthTokens {
+  access: string;
+  refresh: string;
+}
+
+export interface AuthResponse extends AuthTokens {
+  user: AuthUser;
+}
+
+export interface LoginPayload {
+  username: string;
+  password: string;
+}
+
+export interface RegisterPayload {
+  username: string;
+  email: string;
+  password: string;
+  password_confirm: string;
+  full_name?: string;
+}
+
+// ── Profile & Evidence ───────────────────────────────────────────────────────
+
 export interface UserProfile {
   user_id: string;
   name: string;

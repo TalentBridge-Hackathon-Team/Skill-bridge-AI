@@ -1,6 +1,7 @@
 """
 SkillBridge AI URL Configuration
 Maps directly to API Endpoints defined in Blueprint 2.0 (Section 12):
+- /api/auth/         (register, login, logout, refresh, me)
 - /api/profiles/
 - /api/job-analyses/
 - /api/goals/
@@ -23,6 +24,7 @@ def api_root_view(request):
         "project": "SkillBridge AI Backend API",
         "status": "online",
         "endpoints": {
+            "auth": "/api/auth/",
             "profiles": "/api/profiles/me/",
             "goals": "/api/goals/",
             "job_analyses": "/api/job-analyses/",
@@ -35,6 +37,7 @@ def api_root_view(request):
 urlpatterns = [
     path('', api_root_view, name='api-root'),
     path('admin/', admin.site.urls),
+    path('api/auth/', include('apps.authentication.urls')),
     path('api/profiles/', include('apps.profiles.urls')),
     path('api/goals/', GoalListCreateView.as_view(), name='api-goals'),
     path('api/job-analyses/', include('apps.job_analysis.urls')),

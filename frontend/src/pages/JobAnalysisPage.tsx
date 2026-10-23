@@ -22,8 +22,13 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
   const [goalType, setGoalType] = useState<'career_role' | 'skill_goal'>('career_role');
 
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
+  const [isConfirming, setIsConfirming] = useState<boolean>(false);
+  const [activeAnalysisId, setActiveAnalysisId] = useState<string | null>(null);
+  const [extractionWarning, setExtractionWarning] = useState<string | null>(null);
+  const [extractionError, setExtractionError] = useState<string | null>(null);
 
   // Editable requirements (human review - Section 6, F5)
+  // Default sample requirements are shown until the user runs a real extraction.
   const [extractedRequirements, setExtractedRequirements] = useState<Requirement[]>([
     { id: 'req_1', skill_name: 'Python', category: 'language', importance: 'required', source_excerpt: 'Proficiency in Python and familiarity with web frameworks' },
     { id: 'req_2', skill_name: 'Django REST Framework', category: 'framework', importance: 'required', source_excerpt: 'Design, build, and maintain robust RESTful APIs in Python' },
@@ -40,6 +45,9 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
     if (mode === 'goal_based' && !goalText) return;
 
     setIsExtracting(true);
+    setExtractionError(null);
+    setExtractionWarning(null);
+
     try {
       if (mode === 'job_specific') {
         const formData = new FormData();
@@ -49,26 +57,96 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
         formData.append('study_hours_per_week', String(studyHoursPerWeek));
         formData.append('user_id', 'usr_demo_001');
 
-        await api.submitJobAnalysis(formData);
+        const result = await api.submitJobAnalysis(formData);
+
+        // Wire the API response into the editable requirements list
+        if (result.requirements && result.requirements.length > 0) {
+          setExtractedRequirements(
+            result.requirements.map((r) => ({
+              id: r.requirement_id || r.id || `req_${Date.now()}`,
+              skill_name: r.skill_name,
+              category: r.category,
+              importance: r.importance,
+              source_excerpt: r.source_excerpt,
+              user_confirmed: true,
+            }))
+          );
+        }
+        // Store the analysis_id so Confirm can call PATCH /requirements/
+        if (result.analysis_id) {
+          setActiveAnalysisId(result.analysis_id);
+        }
       } else {
-        await api.submitGoal({
+        // Mode B: goal-based — response includes requirements from the matched profile
+        const result = await api.submitGoal({
           user_id: 'usr_demo_001',
           goal_type: goalType,
           goal_text: goalText,
           days_remaining: daysRemaining,
           study_hours_per_week: studyHoursPerWeek,
         });
+
+        // The goal response contains requirements from the matched profile
+        const goalResult = result as unknown as {
+          goal: { goal_id: string };
+          requirements: Array<{ skill_name: string; category: string; importance: string; source_excerpt: string }>;
+          warning?: string;
+        };
+
+        if (goalResult.requirements && goalResult.requirements.length > 0) {
+          setExtractedRequirements(
+            goalResult.requirements.map((r, i) => ({
+              id: `req_goal_${i}_${Date.now()}`,
+              skill_name: r.skill_name,
+              category: r.category,
+              importance: r.importance as 'required' | 'preferred',
+              source_excerpt: r.source_excerpt,
+              user_confirmed: true,
+            }))
+          );
+        }
+        if (goalResult.warning) {
+          setExtractionWarning(goalResult.warning);
+        }
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Analysis error (falling back to prepared sample schema):", err);
+      const message = err instanceof Error ? err.message : 'Could not reach the server.';
+      setExtractionError(`Extraction failed: ${message}. Showing default requirements.`);
     } finally {
       setIsExtracting(false);
     }
   };
 
+  // Confirm button: sends the edited requirements list back to the backend
+  const handleConfirmRequirements = async () => {
+    if (!activeAnalysisId) return; // Goal mode or not yet extracted — skip PATCH
+    setIsConfirming(true);
+    try {
+      await api.updateRequirements(
+        activeAnalysisId,
+        extractedRequirements.map((r) => ({
+          requirement_id: r.id,
+          skill_name: r.skill_name,
+          category: r.category,
+          importance: r.importance,
+          source_excerpt: r.source_excerpt,
+        }))
+      );
+      // Navigate to the skill gap page
+      setActiveTab('gaps');
+    } catch (err) {
+      console.error("Failed to confirm requirements:", err);
+      // Still navigate — the user's local list is valid even if the PATCH failed
+      setActiveTab('gaps');
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
   const removeRequirement = (id?: string) => {
     if (!id) return;
-    setExtractedRequirements(extractedRequirements.filter(r => r.id !== id));
+    setExtractedRequirements(extractedRequirements.filter(r => r.id !== id && r.requirement_id !== id));
   };
 
   const addCustomRequirement = () => {
@@ -312,7 +390,7 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
           >
             <Sparkles className="w-4 h-4" />
             {isExtracting
-              ? 'Analyzing with Bedrock & Rule Engine...'
+              ? 'Analyzing with AI (Bedrock → OpenRouter → Rules)...'
               : mode === 'job_specific'
               ? 'Extract Requirements & Setup Feasibility'
               : 'Map Goal to Target Profile'}
@@ -329,12 +407,27 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
               </p>
             </div>
             <button
-              onClick={() => setActiveTab('gaps')}
-              className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors shadow-sm"
+              onClick={handleConfirmRequirements}
+              disabled={isConfirming}
+              className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors shadow-sm disabled:opacity-50"
             >
-              Run Skill Matching <ArrowRight className="w-3.5 h-3.5" />
+              {isConfirming ? 'Saving...' : 'Confirm & Run Matching'} <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
+
+          {/* Warning from ambiguous goal mapping */}
+          {extractionWarning && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-300">
+              ⚠️ {extractionWarning}
+            </div>
+          )}
+
+          {/* Error from extraction failure */}
+          {extractionError && (
+            <div className="rounded-lg border border-rose-500/30 bg-rose-950/20 p-3 text-xs text-rose-300">
+              {extractionError}
+            </div>
+          )}
 
           {/* List of Target Requirements */}
           <div className="space-y-2.5 overflow-y-auto max-h-[340px] pr-1">
