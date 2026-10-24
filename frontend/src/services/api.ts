@@ -14,7 +14,8 @@ import type {
   Goal,
   FeasibilityAssessment,
   ApplicationChecklistItem,
-  ResumeUploadResponse
+  ResumeUploadResponse,
+  SkillProfileSummary,
 } from '../types';
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
@@ -70,6 +71,9 @@ export const api = {
 
 
   // Member 2: Mode A (Job-Specific & Deadline-Aware) and Mode B (Goal-Based)
+  getSkillProfiles: (): Promise<SkillProfileSummary[]> =>
+    apiFetch<SkillProfileSummary[]>('/skill-profiles/'),
+
   submitJobAnalysis: (data: FormData | { job_text: string; user_id?: string; deadline_date?: string; days_remaining?: number; study_hours_per_week?: number }): Promise<JobAnalysis> => {
     if (data instanceof FormData) {
       return apiFetch<JobAnalysis>('/job-analyses/', { method: 'POST', body: data });

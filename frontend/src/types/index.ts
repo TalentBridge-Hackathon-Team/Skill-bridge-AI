@@ -18,6 +18,12 @@ export type FeasibilityBand =
 
 // ── Auth types ──────────────────────────────────────────────────────────────
 
+export interface SkillProfileSummary {
+  profile_id: string;
+  role_title: string;
+  description: string;
+}
+
 export interface AuthUser {
   id: number;
   username: string;

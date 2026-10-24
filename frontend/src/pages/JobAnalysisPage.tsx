@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { Sparkles, ArrowRight, Image as ImageIcon, Calendar, Clock, Compass, Briefcase, Plus, Trash2, CheckCircle2 } from 'lucide-react';
 import { api } from '../services/api';
-import type { Requirement, ProductMode } from '../types';
+import type { Requirement, ProductMode, SkillProfileSummary } from '../types';
 
 interface JobAnalysisPageProps {
   setActiveTab: (tab: string) => void;
@@ -18,8 +18,16 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
   const [studyHoursPerWeek, setStudyHoursPerWeek] = useState<number>(14);
 
   // Mode B fields (Goal-Based Career/Skill)
-  const [goalText, setGoalText] = useState<string>('Junior Backend Developer / Backend Internship');
+  const [goalText, setGoalText] = useState<string>('');
   const [goalType, setGoalType] = useState<'career_role' | 'skill_goal'>('career_role');
+  const [availableProfiles, setAvailableProfiles] = useState<SkillProfileSummary[]>([]);
+
+  // Load supported profiles once on mount
+  useEffect(() => {
+    api.getSkillProfiles()
+      .then(setAvailableProfiles)
+      .catch(() => {/* non-critical — user can still type freely */});
+  }, []);
 
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [isConfirming, setIsConfirming] = useState<boolean>(false);
@@ -342,19 +350,44 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
 
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Describe your goal or choose the supported hackathon profile
+                    Describe your goal
                   </label>
                   <input
                     type="text"
                     value={goalText}
                     onChange={(e) => setGoalText(e.target.value)}
                     className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"
-                    placeholder="E.g., Prepare for a Junior Backend Developer role"
+                    placeholder="E.g., I want to become a React frontend developer"
                   />
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Mapped to the supported MVP role profile (Python, Django REST, PostgreSQL, API Testing).
+                    The system maps your goal to the closest matching role profile automatically.
                   </p>
                 </div>
+
+                {/* Quick-pick profile buttons */}
+                {availableProfiles.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                      Or pick a role directly
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {availableProfiles.map((p) => (
+                        <button
+                          key={p.profile_id}
+                          type="button"
+                          onClick={() => setGoalText(`I want to become a ${p.role_title}`)}
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${
+                            goalText.includes(p.role_title)
+                              ? 'bg-cyan-600 border-cyan-500 text-white'
+                              : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-cyan-500 hover:text-cyan-300'
+                          }`}
+                        >
+                          {p.role_title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Study Pace */}
                 <div className="p-3.5 rounded-lg border border-cyan-900/40 bg-cyan-950/20 flex items-center justify-between">
@@ -390,7 +423,7 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
           >
             <Sparkles className="w-4 h-4" />
             {isExtracting
-              ? 'Analyzing with AI (Bedrock → OpenRouter → Rules)...'
+              ? 'Analyzing with AI (OpenRouter → Rules)...'
               : mode === 'job_specific'
               ? 'Extract Requirements & Setup Feasibility'
               : 'Map Goal to Target Profile'}

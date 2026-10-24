@@ -3,7 +3,7 @@ Django settings for SkillBridge AI backend.
 Adheres to Product Blueprint:
 - Modular feature-based apps (Profiles, Job Analysis, Skill Matching, Assessments, Roadmap)
 - CORS enabled for React frontend
-- Environment-driven configuration for AWS Bedrock and Secrets
+- Environment-driven configuration for AWS and OpenRouter secrets
 """
 
 import os
