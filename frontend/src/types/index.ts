@@ -16,6 +16,14 @@ export type FeasibilityBand =
   | 'Not feasible as scoped'
   | 'Insufficient information';
 
+export interface ProjectDescription {
+  project_id?: string;
+  title: string;
+  description?: string;
+  link?: string;
+  skills_demonstrated?: string[];
+}
+
 export interface UserProfile {
   user_id: string;
   name: string;
@@ -23,6 +31,11 @@ export interface UserProfile {
   education: string;
   experience_level?: string;
   skills: string[] | string;
+  professional_background?: string;
+  project_descriptions?: ProjectDescription[];
+  /** ISO date string e.g. "2026-12-31" */
+  target_date?: string | null;
+  study_capacity_hours_per_week?: number;
   resume_file?: string | null;
   resume_parsed_text?: string;
   evidence?: SkillEvidence[];
