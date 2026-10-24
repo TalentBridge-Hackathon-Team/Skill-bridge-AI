@@ -31,7 +31,7 @@ export default function AssessmentPage({ setActiveTab: _setActiveTab }: Assessme
           Practical Tasks & Technical Assessments
         </h1>
         <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Feature 6 (Member 4) — Controlled, rubric-evaluated practical tasks to convert unverified claims into demonstrated evidence.
+          Complete practical, rubric-evaluated coding tasks to benchmark your skills and build verified evidence.
         </p>
       </div>
 

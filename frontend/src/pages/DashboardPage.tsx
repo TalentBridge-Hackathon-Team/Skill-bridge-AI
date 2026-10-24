@@ -322,7 +322,7 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
                 className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0e131f] hover:border-slate-400 dark:hover:border-slate-600 cursor-pointer transition-all space-y-1 shadow-xs"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100">MEMBER 1</span>
+                  <span className="text-xs font-bold text-indigo-600 dark:text-cyan-400">STEP 01</span>
                   <span className="text-[10px] text-slate-400">Profile & CV</span>
                 </div>
                 <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">Profile & Evidence</div>
@@ -334,7 +334,7 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
                 className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0e131f] hover:border-slate-400 dark:hover:border-slate-600 cursor-pointer transition-all space-y-1 shadow-xs"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100">MEMBER 2</span>
+                  <span className="text-xs font-bold text-indigo-600 dark:text-cyan-400">STEP 02</span>
                   <span className="text-[10px] text-slate-400">JD Extraction</span>
                 </div>
                 <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">Job & Goal Analysis</div>
@@ -346,7 +346,7 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
                 className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0e131f] hover:border-slate-400 dark:hover:border-slate-600 cursor-pointer transition-all space-y-1 shadow-xs"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100">MEMBER 3</span>
+                  <span className="text-xs font-bold text-indigo-600 dark:text-cyan-400">STEP 03</span>
                   <span className="text-[10px] text-slate-400">Matching</span>
                 </div>
                 <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">Skill Gap Report</div>
@@ -358,7 +358,7 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
                 className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0e131f] hover:border-slate-400 dark:hover:border-slate-600 cursor-pointer transition-all space-y-1 shadow-xs"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100">MEMBER 4</span>
+                  <span className="text-xs font-bold text-indigo-600 dark:text-cyan-400">STEP 04</span>
                   <span className="text-[10px] text-slate-400">Assessments</span>
                 </div>
                 <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">Practical Tasks</div>

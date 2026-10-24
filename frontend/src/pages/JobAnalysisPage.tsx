@@ -92,7 +92,7 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Target Requirement Analysis & Feasibility</h1>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Feature 2, 3 & 4 (Member 2) — Choose your entry journey: deadline-aware job preparation or goal-based skill growth.
+            Choose your career path: deadline-aware target job preparation or self-paced goal-based skill growth.
           </p>
         </div>
 

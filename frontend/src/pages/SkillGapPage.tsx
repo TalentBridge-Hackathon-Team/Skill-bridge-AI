@@ -1,230 +1,358 @@
-import StatusBadge from '../components/StatusBadge';
-import { ArrowRight, Clock, ShieldCheck, Info, ChevronRight } from 'lucide-react';
-import type { MatchReport, FeasibilityAssessment } from '../types';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  ArrowRight,
+  Share2,
+  Plus,
+  RotateCcw,
+  RefreshCw,
+  AlertCircle,
+  Sparkles,
+  Layers
+} from 'lucide-react';
+import RoleSelector from '../components/skill-gap/RoleSelector';
+import GapOverviewCards from '../components/skill-gap/GapOverviewCards';
+import FeasibilityBanner from '../components/skill-gap/FeasibilityBanner';
+import SkillComparisonTable from '../components/skill-gap/SkillComparisonTable';
+import SkillDetailModal from '../components/skill-gap/SkillDetailModal';
+import LinkEvidenceModal from '../components/skill-gap/LinkEvidenceModal';
+import EvidenceMatrixModal from '../components/skill-gap/EvidenceMatrixModal';
+import CustomCareerGoalModal from '../components/skill-gap/CustomCareerGoalModal';
+import {
+  skillGapService,
+  type SkillGapAnalysisResponse
+} from '../services/skillGapService';
+import type { TraceableMatchResult } from '../utils/skillGapCalculations';
+import type { TargetRoleOption } from '../services/mockSkillGapData';
+import type { SkillEvidence } from '../types';
 
 interface SkillGapPageProps {
   setActiveTab: (tab: string) => void;
 }
 
 export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
-  // Traceable match reports according to Blueprint Section 7
-  const matchResults: MatchReport[] = [
-    {
-      skill: 'Django REST Framework',
-      status: 'Demonstrated',
-      priority: 'Low',
-      reason: 'Verified project evidence found: E-Commerce Order Management API repository.',
-      action: 'Ready to showcase in technical interview questions and portfolio.',
-      effort_hours_estimate: 0
-    },
-    {
-      skill: 'API Testing',
-      status: 'Unverified',
-      priority: 'High',
-      reason: 'Mandatory role requirement. No automated test suite or verified test artifact in profile.',
-      action: 'Complete the controlled 10-point REST API Testing Assessment.',
-      effort_hours_estimate: 6
-    },
-    {
-      skill: 'PostgreSQL',
-      status: 'Self-reported',
-      priority: 'High',
-      reason: 'Listed in profile skills, but no verified repository or SQL schema evidence linked.',
-      action: 'Link a project repository featuring relational queries or data migrations.',
-      effort_hours_estimate: 8
-    },
-    {
-      skill: 'Authentication & Security',
-      status: 'Unverified',
-      priority: 'Medium',
-      reason: 'Required by backend posting. Token authentication scenarios not demonstrated.',
-      action: 'Review JWT expiration and authorization rejection test cases.',
-      effort_hours_estimate: 4
-    }
-  ];
+  const [roles, setRoles] = useState<TargetRoleOption[]>([]);
+  const [selectedRoleId, setSelectedRoleId] = useState<string>('job_15f49367');
+  const [activeModeFilter, setActiveModeFilter] = useState<'all' | 'job_specific' | 'goal_based'>('all');
+  const [analysis, setAnalysis] = useState<SkillGapAnalysisResponse | null>(null);
+  const [daysRemaining, setDaysRemaining] = useState<number>(14);
+  const [studyHoursPerWeek, setStudyHoursPerWeek] = useState<number>(14);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Feasibility assessment (Section 7: 14 days, 14 hrs/week = 28 hrs available; 18h skill tasks + 4h app prep = 22h total plan effort)
-  const feasibility: FeasibilityAssessment = {
-    available_hours: 28,
-    estimated_plan_effort_hours: 22,
-    days_remaining: 14,
-    study_hours_per_day: 2,
-    feasibility_band: 'Likely feasible',
-    interpretation: 'Estimated prioritized effort (22 hrs) is comfortably below available study capacity (28 hrs).',
-    assumptions: [
-      '14 days remaining before application closing date',
-      'Assumes 2.0 hours/day (14 hours/week) sustained study capacity',
-      'Includes 4 hours for CV tailoring and application preparation checklist'
-    ],
-    suggested_scope: 'Focus first on the High-priority API Testing assessment and linking PostgreSQL evidence.'
+  // Modals & Drawers
+  const [selectedSkill, setSelectedSkill] = useState<TraceableMatchResult | null>(null);
+  const [isLinkModalOpen, setIsLinkModalOpen] = useState<boolean>(false);
+  const [linkTargetSkill, setLinkTargetSkill] = useState<string>('');
+  const [isMatrixModalOpen, setIsMatrixModalOpen] = useState<boolean>(false);
+  const [isCustomGoalModalOpen, setIsCustomGoalModalOpen] = useState<boolean>(false);
+
+  // User notification toast
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const getFeasibilityColor = (band: string) => {
-    switch (band) {
-      case 'Likely feasible':
-        return 'text-emerald-400 bg-emerald-950/30 border-emerald-500/40';
-      case 'Tight / uncertain':
-        return 'text-amber-400 bg-amber-950/30 border-amber-500/40';
-      case 'Not feasible as scoped':
-        return 'text-rose-400 bg-rose-950/30 border-rose-500/40';
-      default:
-        return 'text-slate-400 bg-slate-900 border-slate-700';
+  const loadAnalysis = useCallback(async (
+    roleId?: string,
+    customDays?: number,
+    customHours?: number
+  ) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await skillGapService.runAnalysis(roleId, customDays, customHours);
+      setAnalysis(data);
+      if (data.role) {
+        setSelectedRoleId(data.role.id);
+        if (customDays !== undefined) setDaysRemaining(customDays);
+        else setDaysRemaining(data.role.days_remaining);
+
+        if (customHours !== undefined) setStudyHoursPerWeek(customHours);
+        else setStudyHoursPerWeek(data.role.study_hours_per_week);
+      }
+    } catch (err: any) {
+      console.error('Failed to run skill gap analysis:', err);
+      setError(err.message || 'Failed to analyze skill gaps');
+    } finally {
+      setIsLoading(false);
     }
+  }, []);
+
+  const isInitialLoaded = useRef(false);
+
+  // Load roles on mount and auto-select first active role from Neon DB
+  useEffect(() => {
+    if (isInitialLoaded.current) return;
+    isInitialLoaded.current = true;
+
+    skillGapService.getTargetRoles().then(loadedRoles => {
+      setRoles(loadedRoles);
+      if (loadedRoles && loadedRoles.length > 0) {
+        const firstRole = loadedRoles[0];
+        setSelectedRoleId(firstRole.id);
+        setDaysRemaining(firstRole.days_remaining);
+        setStudyHoursPerWeek(firstRole.study_hours_per_week);
+        loadAnalysis(firstRole.id, firstRole.days_remaining, firstRole.study_hours_per_week);
+      } else {
+        loadAnalysis('job_15f49367');
+      }
+    }).catch(err => {
+      setError(err.message || 'Failed to connect to backend service');
+      setIsLoading(false);
+    });
+  }, [loadAnalysis]);
+
+  const handleModeFilterChange = (newMode: 'all' | 'job_specific' | 'goal_based') => {
+    setActiveModeFilter(newMode);
+    const currentRole = roles.find(r => r.id === selectedRoleId);
+    if (newMode !== 'all' && currentRole && currentRole.mode !== newMode) {
+      const matchingRole = roles.find(r => r.mode === newMode);
+      if (matchingRole) {
+        handleRoleChange(matchingRole.id);
+      }
+    }
+  };
+
+  const handleCreateCustomGoal = async (data: {
+    role_title: string;
+    goal_description: string;
+    days_remaining: number;
+    study_hours_per_week: number;
+  }) => {
+    setIsCustomGoalModalOpen(false);
+    setIsLoading(true);
+    setError(null);
+    try {
+      const newRole = await skillGapService.createCustomGoal(data);
+      const updatedRoles = await skillGapService.getTargetRoles();
+      setRoles(updatedRoles);
+      const matched = updatedRoles.find(r => r.id === newRole.id || (r.role_title === newRole.role_title && r.mode === 'goal_based'));
+      const targetId = matched ? matched.id : newRole.id;
+      setSelectedRoleId(targetId);
+      setActiveModeFilter('goal_based');
+      setDaysRemaining(newRole.days_remaining);
+      setStudyHoursPerWeek(newRole.study_hours_per_week);
+      await loadAnalysis(targetId, newRole.days_remaining, newRole.study_hours_per_week);
+      showToast(`Career goal "${newRole.role_title}" created! AI identified ${newRole.requirements?.length || 0} milestone competencies.`);
+    } catch (err: any) {
+      console.error('Failed to create custom goal:', err);
+      setError(err.message || 'Failed to create and analyze custom goal');
+      setIsLoading(false);
+    }
+  };
+
+  const handleRoleChange = (roleId: string) => {
+    setSelectedRoleId(roleId);
+    skillGapService.setSelectedRole(roleId);
+    const targetRole = roles.find(r => r.id === roleId);
+    if (targetRole) {
+      setDaysRemaining(targetRole.days_remaining);
+      setStudyHoursPerWeek(targetRole.study_hours_per_week);
+      loadAnalysis(roleId, targetRole.days_remaining, targetRole.study_hours_per_week);
+      showToast(`Switched target role to "${targetRole.role_title}"`);
+    }
+  };
+
+  const handleUpdateBudget = (newDays: number, newHours: number) => {
+    setDaysRemaining(newDays);
+    setStudyHoursPerWeek(newHours);
+    loadAnalysis(selectedRoleId, newDays, newHours);
+  };
+
+  const handleOpenLinkModal = (skillName?: string) => {
+    setLinkTargetSkill(skillName || (analysis?.results[0]?.skill_name || ''));
+    setIsLinkModalOpen(true);
+  };
+
+  const handleSubmitEvidence = async (
+    evidenceData: Omit<SkillEvidence, 'id' | 'evidence_id'>
+  ) => {
+    await skillGapService.linkEvidence(evidenceData);
+    await loadAnalysis(selectedRoleId, daysRemaining, studyHoursPerWeek);
+    showToast(`Linked evidence "${evidenceData.title}" to ${evidenceData.skill_name}! Match recalculated.`);
+  };
+
+  const handleResetData = () => {
+    skillGapService.resetToDefault();
+    setSelectedRoleId('job_15f49367');
+    setDaysRemaining(14);
+    setStudyHoursPerWeek(14);
+    loadAnalysis('job_15f49367', 14, 14);
+    showToast('Reset data to initial sandbox state.');
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-300">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-4 py-2.5 rounded-2xl shadow-xl text-xs font-semibold flex items-center gap-2 border border-slate-700 dark:border-slate-200 animate-in slide-in-from-bottom-2">
+          <Sparkles className="w-4 h-4 text-amber-400 dark:text-indigo-600" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       {/* Page Header */}
-      <div className="flex justify-between items-center flex-wrap gap-4">
+      <div className="flex justify-between items-start flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Skill Gap Matching & Feasibility Report</h1>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Feature 5, 6 & 8 (Member 3 & 4) — Deterministic matching against evidence statuses and time-budget validation.
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+            Skill Gap & Evidence Matching
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-3xl leading-relaxed">
+            Transparent requirement-to-profile matching, verified evidence tracking, gap priorities, and deadline feasibility.
           </p>
         </div>
 
-        <button
-          onClick={() => setActiveTab('roadmap')}
-          className="flex items-center gap-2 rounded-xl bg-slate-900 dark:bg-white px-4 py-2 text-xs font-semibold text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors shadow-xs"
-        >
-          View Actionable Roadmap <ArrowRight className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      {/* Deadline Feasibility Assessment Card */}
-      <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800/80 bg-white dark:bg-[#0e131f] p-6 space-y-4 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800/80">
-          <div className="flex items-center gap-2.5">
-            <Clock className="w-5 h-5 text-indigo-500" />
-            <div>
-              <h2 className="text-base font-semibold text-slate-900 dark:text-white">Deadline Feasibility Assessment</h2>
-              <span className="text-xs text-slate-500 dark:text-slate-400">Calculated for 14-day target application window</span>
-            </div>
-          </div>
-
-          <div className={`px-3 py-1 rounded-full text-xs font-bold border ${getFeasibilityColor(feasibility.feasibility_band)} flex items-center gap-1.5`}>
-            <ShieldCheck className="w-4 h-4" />
-            {feasibility.feasibility_band}
-          </div>
-        </div>
-
-        {/* Calculation Details */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="rounded-xl bg-slate-50 dark:bg-slate-950/60 p-4 border border-slate-200/80 dark:border-slate-800/80">
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-1">Available Study Time</span>
-            <div className="text-2xl font-bold text-slate-900 dark:text-white">
-              {feasibility.available_hours} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">hrs</span>
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1">14 days × 2.0 hrs/day</p>
-          </div>
-
-          <div className="rounded-xl bg-slate-50 dark:bg-slate-950/60 p-4 border border-slate-200/80 dark:border-slate-800/80">
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-1">Estimated Plan Effort</span>
-            <div className="text-2xl font-bold text-slate-900 dark:text-indigo-300">
-              {feasibility.estimated_plan_effort_hours} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">hrs</span>
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1">18h gap tasks + 4h app prep</p>
-          </div>
-
-          <div className="rounded-xl bg-slate-50 dark:bg-slate-950/60 p-4 border border-slate-200/80 dark:border-slate-800/80">
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-1">Time Buffer / Margin</span>
-            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-              +{feasibility.available_hours - feasibility.estimated_plan_effort_hours} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">hrs</span>
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1">Comfortable margin for revisions</p>
-          </div>
-        </div>
-
-        {/* Interpretation & Assumptions */}
-        <div className="space-y-2 text-xs text-slate-600 dark:text-slate-300 pt-1">
-          <p className="leading-relaxed">
-            <strong className="text-slate-900 dark:text-white">Analysis:</strong> {feasibility.interpretation}
-          </p>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 space-y-0.5">
-            {feasibility.assumptions.map((asm, idx) => (
-              <div key={idx} className="flex items-center gap-1.5">
-                <ChevronRight className="w-3 h-3 text-indigo-500 shrink-0" />
-                <span>{asm}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Critical Limitation Disclaimer */}
-        <div className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-950/80 border border-slate-200/80 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400">
-          <Info className="w-4 h-4 text-cyan-600 dark:text-cyan-400 shrink-0 mt-0.5" />
-          <p>
-            <strong className="text-slate-800 dark:text-slate-200">Important Limitation:</strong> Feasibility estimates predict whether a selected improvement plan may fit the available time. They do not predict hiring outcomes, guarantee mastery, or decide whether you should apply.
-          </p>
-        </div>
-      </div>
-
-      {/* Traceable Match Results Table */}
-      <div className="space-y-3">
-        <div className="flex justify-between items-center text-xs font-semibold text-slate-500 dark:text-slate-400 px-1">
-          <span>Target Requirement & Status</span>
-          <span>Matching Rationale & Recommended Action</span>
-        </div>
-
-        {matchResults.map((item, index) => (
-          <div
-            key={index}
-            className="rounded-2xl border border-slate-200/90 dark:border-slate-800/80 bg-white dark:bg-[#0e131f] p-5 grid grid-cols-1 md:grid-cols-3 gap-4 items-center hover:border-slate-300 dark:hover:border-slate-700 transition-colors shadow-xs"
+        {/* Action Header Buttons */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsCustomGoalModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-cyan-200 dark:border-cyan-800 bg-cyan-50/80 dark:bg-cyan-950/40 px-3.5 py-2 text-xs font-semibold text-cyan-700 dark:text-cyan-300 hover:bg-cyan-100 dark:hover:bg-cyan-900/40 transition-colors shadow-xs"
           >
-            {/* Skill & Status */}
-            <div>
-              <div className="flex items-center gap-2 mb-1.5">
-                <StatusBadge status={item.status} />
-                <span className={`text-[11px] font-semibold ${
-                  item.priority === 'High' ? 'text-rose-500' : item.priority === 'Medium' ? 'text-amber-500' : 'text-slate-500'
-                }`}>
-                  {item.priority} Priority
-                </span>
-                {item.effort_hours_estimate !== undefined && item.effort_hours_estimate > 0 && (
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200/60 dark:border-slate-700/60">
-                    ~{item.effort_hours_estimate} hrs
-                  </span>
-                )}
-              </div>
-              <h3 className="text-base font-semibold text-slate-900 dark:text-white">{item.skill}</h3>
-            </div>
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            <span>+ Set Career Goal</span>
+          </button>
 
-            {/* Rationale */}
-            <div className="rounded-xl bg-slate-50 dark:bg-slate-950/70 p-3 border border-slate-200/80 dark:border-slate-800/80">
-              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1">
-                Deterministic Rationale
-              </span>
-              <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">{item.reason}</p>
-            </div>
+          <button
+            type="button"
+            onClick={() => setIsMatrixModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0e131f] px-3.5 py-2 text-xs font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors shadow-xs"
+          >
+            <Share2 className="w-3.5 h-3.5 text-indigo-500" />
+            <span>Evidence Matrix</span>
+          </button>
 
-            {/* Action */}
-            <div className="flex flex-col items-start gap-2">
-              <span className="text-[10px] font-bold text-indigo-600 dark:text-cyan-400 uppercase tracking-wider">
-                Recommended Action
-              </span>
-              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">{item.action}</p>
+          <button
+            type="button"
+            onClick={() => handleOpenLinkModal()}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0e131f] px-3.5 py-2 text-xs font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors shadow-xs"
+          >
+            <Plus className="w-3.5 h-3.5 text-indigo-500" />
+            <span>Link Evidence</span>
+          </button>
 
-              {item.skill === 'API Testing' && (
-                <button
-                  onClick={() => setActiveTab('assessment')}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 dark:bg-white px-3 py-1.5 text-xs font-semibold text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors shadow-xs"
-                >
-                  Start Assessment <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              )}
+          <button
+            type="button"
+            onClick={() => setActiveTab('roadmap')}
+            className="flex items-center gap-2 rounded-xl bg-slate-900 dark:bg-white px-4 py-2 text-xs font-semibold text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors shadow-xs"
+          >
+            View Roadmap <ArrowRight className="w-3.5 h-3.5" />
+          </button>
 
-              {item.skill === 'PostgreSQL' && (
-                <button
-                  onClick={() => setActiveTab('profile')}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                >
-                  Link Repository Evidence
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
+          <button
+            type="button"
+            onClick={handleResetData}
+            title="Reset sandbox state"
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
+        </div>
       </div>
+
+      {/* Target Role Selector with Mode A vs Mode B Filter */}
+      {roles.length > 0 && (
+        <RoleSelector
+          roles={roles}
+          selectedRoleId={selectedRoleId}
+          onSelectRole={handleRoleChange}
+          daysRemaining={daysRemaining}
+          studyHoursPerWeek={studyHoursPerWeek}
+          onUpdateBudget={handleUpdateBudget}
+          activeModeFilter={activeModeFilter}
+          onSelectModeFilter={handleModeFilterChange}
+          onOpenCustomGoalModal={() => setIsCustomGoalModalOpen(true)}
+          onNavigateToJDMatcher={() => setActiveTab('analysis')}
+        />
+      )}
+
+      {/* Loading & Error States */}
+      {isLoading && (
+        <div className="p-8 text-center bg-white dark:bg-[#0e131f] rounded-2xl border border-slate-200 dark:border-slate-800">
+          <RefreshCw className="w-6 h-6 animate-spin text-indigo-500 mx-auto mb-2" />
+          <span className="text-xs text-slate-500">Calculating deterministic skill match...</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <div className="flex-1">
+            <strong className="block">Analysis Error</strong>
+            <span>{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => loadAnalysis(selectedRoleId, daysRemaining, studyHoursPerWeek)}
+            className="px-3 py-1.5 rounded-xl bg-rose-600 text-white font-semibold hover:bg-rose-700"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Main Analysis Body */}
+      {!isLoading && analysis && (
+        <div className="space-y-6">
+          {/* Overview Metrics Cards & Score */}
+          <GapOverviewCards summary={analysis.summary} />
+
+          {/* Deadline Feasibility Assessment Card */}
+          <FeasibilityBanner feasibility={analysis.feasibility} />
+
+          {/* Traceable Skills Comparison Table with Filter/Sort */}
+          <SkillComparisonTable
+            results={analysis.results}
+            onSelectSkill={item => setSelectedSkill(item)}
+            onOpenLinkModal={skillName => handleOpenLinkModal(skillName)}
+            onNavigateTab={setActiveTab}
+          />
+        </div>
+      )}
+
+      {/* Skill Detail Deep-Dive Modal */}
+      <SkillDetailModal
+        item={selectedSkill}
+        onClose={() => setSelectedSkill(null)}
+        onOpenLinkModal={skillName => handleOpenLinkModal(skillName)}
+        onNavigateTab={setActiveTab}
+      />
+
+      {/* Link Evidence Modal */}
+      <LinkEvidenceModal
+        initialSkillName={linkTargetSkill}
+        isOpen={isLinkModalOpen}
+        onClose={() => setIsLinkModalOpen(false)}
+        onSubmitEvidence={handleSubmitEvidence}
+        availableSkills={
+          analysis?.role?.requirements?.map(r => r.skill_name) || [
+            'Python',
+            'Django REST Framework',
+            'PostgreSQL',
+            'API Testing',
+            'Authentication & Security',
+            'Docker'
+          ]
+        }
+      />
+
+      {/* Evidence Traceability Matrix Modal */}
+      <EvidenceMatrixModal
+        isOpen={isMatrixModalOpen}
+        onClose={() => setIsMatrixModalOpen(false)}
+        mappedEvidence={analysis?.evidence_mapping?.mapped_evidence || []}
+        unmappedEvidence={analysis?.evidence_mapping?.unmapped_evidence || []}
+        onOpenLinkModal={() => handleOpenLinkModal()}
+      />
+
+      {/* Custom Career Goal Creation Modal */}
+      <CustomCareerGoalModal
+        isOpen={isCustomGoalModalOpen}
+        onClose={() => setIsCustomGoalModalOpen(false)}
+        onSubmit={handleCreateCustomGoal}
+      />
     </div>
   );
 }

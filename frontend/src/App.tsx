@@ -10,7 +10,25 @@ import AssessmentPage from './pages/AssessmentPage';
 import RoadmapPage from './pages/RoadmapPage';
 
 function AppContent() {
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam) return tabParam;
+      const hash = window.location.hash.replace('#', '');
+      if (hash) return hash;
+    }
+    return 'dashboard';
+  });
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tab);
+      window.history.replaceState({}, '', url.toString());
+    }
+  };
 
   const currentItem = navItems.find(i => i.id === activeTab);
   const activeTitle = currentItem?.shortLabel || currentItem?.label || 'Overview';
@@ -20,7 +38,7 @@ function AppContent() {
       {/* 1. Left Sidebar matching screenshot */}
       <Sidebar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleTabChange}
         userName="Student"
         userRole="Pro plan"
       />
@@ -32,12 +50,12 @@ function AppContent() {
 
         {/* Page Content */}
         <main className="flex-1 p-6 sm:p-8 max-w-7xl w-full mx-auto">
-          {activeTab === 'dashboard' && <DashboardPage setActiveTab={setActiveTab} />}
-          {activeTab === 'profile' && <ProfilePage setActiveTab={setActiveTab} />}
-          {activeTab === 'analysis' && <JobAnalysisPage setActiveTab={setActiveTab} />}
-          {activeTab === 'gaps' && <SkillGapPage setActiveTab={setActiveTab} />}
-          {activeTab === 'assessment' && <AssessmentPage setActiveTab={setActiveTab} />}
-          {activeTab === 'roadmap' && <RoadmapPage setActiveTab={setActiveTab} />}
+          {activeTab === 'dashboard' && <DashboardPage setActiveTab={handleTabChange} />}
+          {activeTab === 'profile' && <ProfilePage setActiveTab={handleTabChange} />}
+          {activeTab === 'analysis' && <JobAnalysisPage setActiveTab={handleTabChange} />}
+          {activeTab === 'gaps' && <SkillGapPage setActiveTab={handleTabChange} />}
+          {activeTab === 'assessment' && <AssessmentPage setActiveTab={handleTabChange} />}
+          {activeTab === 'roadmap' && <RoadmapPage setActiveTab={handleTabChange} />}
         </main>
 
         {/* Subtle Footer */}

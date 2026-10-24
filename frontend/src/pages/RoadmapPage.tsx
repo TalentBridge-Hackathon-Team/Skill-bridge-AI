@@ -141,7 +141,7 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Learner Roadmap & Progress Plan</h1>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Feature 7 & 8 (Member 4) — Sequenced, actionable deliverables with effort estimates and curated resources.
+            Sequenced, actionable deliverables with effort estimates and curated resources.
           </p>
         </div>
 

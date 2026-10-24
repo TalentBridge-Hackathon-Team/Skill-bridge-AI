@@ -69,6 +69,9 @@ export const api = {
     return apiFetch<JobAnalysis>('/job-analyses/', { method: 'POST', body: JSON.stringify(data) });
   },
 
+  getJobAnalyses: (userId: string = 'usr_demo_001'): Promise<JobAnalysis[]> =>
+    apiFetch<JobAnalysis[]>(`/job-analyses/?user_id=${userId}`),
+
   getJobAnalysis: (id: string): Promise<JobAnalysis> =>
     apiFetch<JobAnalysis>(`/job-analyses/${id}/`),
 
@@ -80,10 +83,10 @@ export const api = {
     apiFetch<Goal>('/goals/', { method: 'POST', body: JSON.stringify(data) }),
 
   // Member 3: Skill Matching & Feasibility Engine
-  runMatching: (analysisId: string): Promise<{ analysis_id: string; role_title: string; results: MatchReport[]; feasibility?: FeasibilityAssessment }> =>
-    apiFetch(`/job-analyses/${analysisId}/match/`, { method: 'POST' }),
+  runMatching: (analysisId: string, userId: string = 'demo_user'): Promise<{ analysis_id: string; role_title: string; results: MatchReport[]; feasibility?: FeasibilityAssessment; summary?: any }> =>
+    apiFetch(`/job-analyses/${analysisId}/match/?user_id=${userId}`, { method: 'POST' }),
 
-  getSkillGaps: (analysisId: string): Promise<{ analysis_id: string; results: MatchReport[]; feasibility?: FeasibilityAssessment }> =>
+  getSkillGaps: (analysisId: string): Promise<{ analysis_id: string; results: MatchReport[]; feasibility?: FeasibilityAssessment; summary?: any }> =>
     apiFetch(`/job-analyses/${analysisId}/gaps/`),
 
   // Member 4: Assessment, Roadmap, Deadline Feasibility & Application Checklist

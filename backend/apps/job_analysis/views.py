@@ -17,7 +17,7 @@ class JobAnalysisListCreateView(APIView):
 
     def get(self, request):
         user_id = request.query_params.get("user_id", "demo_user")
-        analyses = JobAnalysis.objects.filter(user_id=user_id)
+        analyses = JobAnalysis.objects.filter(user_id=user_id).order_by('-created_at')
         serializer = JobAnalysisSerializer(analyses, many=True)
         return Response(serializer.data)
 
@@ -34,23 +34,28 @@ class JobAnalysisListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        role_title = request.data.get("role_title") or request.data.get("title") or "Junior Backend Developer"
+        mode = request.data.get("mode", "job_specific")
+
+        # Extract requirements using OpenRouter LLM (with deterministic rule engine validation)
+        extraction_data = openrouter_service.extract_job_requirements(job_text or "(Screenshot provided)", role_title=role_title)
+        extracted_reqs = extraction_data.get("requirements", [])
+        final_role_title = extraction_data.get("role_title", role_title)
+        summary = extraction_data.get("summary", f"Extracted requirements for {final_role_title}.")
+
         analysis_id = f"job_{uuid.uuid4().hex[:8]}"
         analysis = JobAnalysis.objects.create(
             analysis_id=analysis_id,
             user_id=user_id,
-            mode='job_specific',
-            role_title=request.data.get("role_title", "Junior Backend Developer"),
+            mode=mode,
+            role_title=final_role_title,
             job_text=job_text or "(Image screenshot provided for extraction)",
             job_image=job_image,
             days_remaining=days_remaining,
             study_hours_per_week=study_hours_per_week,
-            summary="Extracted requirements aligned with Junior Backend Developer posting.",
+            summary=summary,
             status="completed"
         )
-
-        # Extract requirements using OpenRouter LLM (with deterministic rule engine validation)
-        extraction_data = openrouter_service.extract_job_requirements(job_text or "(Screenshot provided)")
-        extracted_reqs = extraction_data.get("requirements", [])
 
         for req_item in extracted_reqs:
             Requirement.objects.create(

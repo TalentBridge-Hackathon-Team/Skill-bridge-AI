@@ -79,7 +79,7 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
       <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Learner Career Profile & Evidence</h1>
         <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Feature 1 (Member 1) — Manage profile, upload CV/Resume for RAG embedding evidence, and link projects.
+          Manage your career profile, upload your resume for intelligent extraction, and showcase your project portfolio.
         </p>
       </div>
 

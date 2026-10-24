@@ -115,20 +115,23 @@ class OpenRouterService:
                 "model": self.text_model,
             }
 
-    def extract_job_requirements(self, job_text: str) -> Dict[str, Any]:
+    def extract_job_requirements(self, job_text: str, role_title: Optional[str] = None) -> Dict[str, Any]:
         """
-        Extracts structured skill requirements from a job posting using OPENROUTER_TEXT_MODEL.
-        Falls back to deterministic rule extraction if rate-limited or offline.
+        Extracts structured skill requirements from a job posting or career goal using OPENROUTER_TEXT_MODEL.
+        Supports any custom role (Backend, Frontend, Full Stack, DevOps, Cloud, AI/ML, Mobile, Security, etc.)
+        Falls back to comprehensive multi-domain NLP & rule extraction if LLM is rate-limited or offline.
         """
+        inferred_title = role_title or "Software Engineer"
         system_prompt = (
-            "You are a technical recruiter assistant. Extract required and preferred technical skills "
-            "from the job description. Return JSON strictly formatted with keys: 'role_title', 'summary', "
-            "and 'requirements' (a list of objects with 'skill_name', 'category', 'importance' ['required'|'preferred'], "
-            "and 'source_excerpt'). Do not include markdown code fence formatting outside the JSON."
+            f"You are a technical recruiter and talent architect assistant. Extract required and preferred technical skills "
+            f"from the job description or career goal for the role '{inferred_title}'. "
+            f"Return JSON strictly formatted with keys: 'role_title', 'summary', and 'requirements' "
+            f"(a list of objects with 'skill_name', 'category' ['language'|'framework'|'database'|'cloud'|'devops'|'testing'|'architecture'|'tools'], "
+            f"'importance' ['required'|'preferred'], and 'source_excerpt'). Do not include markdown code fence formatting outside the JSON."
         )
 
         llm_result = self.generate_text(
-            prompt=f"Job Description:\n{job_text}",
+            prompt=f"Role: {inferred_title}\nDescription / Goal:\n{job_text}",
             system_prompt=system_prompt,
             temperature=0.1,
             max_tokens=1500,
@@ -144,43 +147,131 @@ class OpenRouterService:
                 if raw_text.endswith("```"):
                     raw_text = raw_text[:-3]
                 parsed = json.loads(raw_text.strip())
-                if "requirements" in parsed:
+                if "requirements" in parsed and len(parsed["requirements"]) > 0:
+                    if role_title:
+                        parsed["role_title"] = role_title
                     return parsed
             except Exception as e:
-                logger.info(f"Could not parse LLM JSON output, using deterministic rule fallback: {e}")
+                logger.info(f"Could not parse LLM JSON output, using dynamic rule fallback: {e}")
 
-        # Deterministic Rule-Based Fallback (always reliable)
+        # Comprehensive Multi-Domain Dynamic Extraction
         detected_requirements = []
-        rules = [
-            ("Python", "language", "required", "Python programming language"),
-            ("Django REST Framework", "framework", "required", "Django and DRF API development"),
-            ("PostgreSQL", "database", "required", "PostgreSQL database management and queries"),
-            ("API Testing", "testing", "required", "Unit and automated API testing"),
-            ("Docker", "devops", "preferred", "Containerization with Docker"),
-            ("Git", "tools", "preferred", "Version control using Git"),
+        lower_text = job_text.lower() if job_text else ""
+
+        # Comprehensive Technical Skills Knowledge Base
+        SKILL_CATALOG = [
+            # Languages
+            ("Python", "language", "required", ["python", "python3", "py"]),
+            ("TypeScript", "language", "required", ["typescript", "ts"]),
+            ("JavaScript", "language", "required", ["javascript", "js", "es6", "ecmascript"]),
+            ("Go", "language", "required", ["golang", "go programming"]),
+            ("Java", "language", "required", ["java ", "core java", "java 17", "java 21"]),
+            ("Rust", "language", "required", ["rust", "rustlang"]),
+            ("C++", "language", "required", ["c++", "cpp"]),
+            ("C#", "language", "required", ["c#", "csharp", ".net"]),
+            ("SQL", "language", "required", ["sql queries", "structured query language", "complex sql"]),
+            ("HTML/CSS", "language", "preferred", ["html", "html5", "css", "css3"]),
+
+            # Frontend & Web Frameworks
+            ("React", "framework", "required", ["react", "react.js", "reactjs", "react hooks"]),
+            ("Next.js", "framework", "required", ["next.js", "nextjs", "next js"]),
+            ("Vue.js", "framework", "required", ["vue", "vue.js", "vuejs"]),
+            ("Angular", "framework", "required", ["angular", "angularjs"]),
+            ("TailwindCSS", "framework", "preferred", ["tailwind", "tailwindcss", "tailwind css"]),
+            ("Redux", "tools", "preferred", ["redux", "redux toolkit", "rtk"]),
+
+            # Backend & API Frameworks
+            ("Django REST Framework", "framework", "required", ["django rest framework", "django rest", "drf", "django"]),
+            ("FastAPI", "framework", "required", ["fastapi", "fast api", "async python"]),
+            ("Node.js", "framework", "required", ["node.js", "nodejs", "node js", "node"]),
+            ("Express.js", "framework", "required", ["express", "express.js", "expressjs"]),
+            ("Spring Boot", "framework", "required", ["spring boot", "spring framework", "spring"]),
+            ("Flask", "framework", "required", ["flask"]),
+            ("NestJS", "framework", "required", ["nestjs", "nest.js"]),
+
+            # Databases & Persistence
+            ("PostgreSQL", "database", "required", ["postgresql", "postgres", "psql"]),
+            ("MongoDB", "database", "required", ["mongodb", "mongo", "nosql"]),
+            ("MySQL", "database", "required", ["mysql"]),
+            ("Redis", "database", "preferred", ["redis", "caching", "in-memory cache"]),
+            ("Vector Databases", "database", "required", ["vector database", "pgvector", "pinecone", "weaviate", "qdrant", "chroma", "embeddings search"]),
+            ("DynamoDB", "database", "preferred", ["dynamodb"]),
+
+            # Cloud, Infrastructure & DevOps
+            ("AWS", "cloud", "required", ["aws", "amazon web services", "ec2", "s3", "lambda", "rds"]),
+            ("Docker", "devops", "required", ["docker", "container", "containerization", "dockerfile"]),
+            ("Kubernetes", "devops", "preferred", ["kubernetes", "k8s"]),
+            ("Terraform", "cloud", "preferred", ["terraform", "infrastructure as code", "iac"]),
+            ("CI/CD", "devops", "preferred", ["ci/cd", "continuous integration", "github actions", "gitlab ci", "jenkins"]),
+            ("Linux", "tools", "preferred", ["linux", "bash", "shell scripting", "unix"]),
+            ("Git", "tools", "preferred", ["git", "github", "gitlab", "version control"]),
+
+            # Testing & Quality Assurance
+            ("API Testing", "testing", "required", ["api testing", "postman", "integration testing", "api tests"]),
+            ("Unit Testing", "testing", "required", ["unit testing", "unit tests", "pytest", "jest", "vitest", "tdd"]),
+
+            # Architecture, Security & AI
+            ("REST APIs", "architecture", "required", ["rest api", "restful", "rest apis", "rest endpoints"]),
+            ("GraphQL", "architecture", "preferred", ["graphql"]),
+            ("Microservices", "architecture", "preferred", ["microservices", "distributed systems", "event-driven"]),
+            ("Authentication & Security", "architecture", "required", ["jwt", "oauth", "authentication", "authorization", "rbac", "security"]),
+            ("Machine Learning", "architecture", "required", ["machine learning", "ml", "deep learning", "nlp"]),
+            ("PyTorch", "framework", "required", ["pytorch", "torch"]),
+            ("RAG Architecture", "architecture", "required", ["rag", "retrieval augmented generation", "langchain", "llamaindex", "llm"]),
+            ("System Design", "architecture", "required", ["system design", "high availability", "scalability", "caching strategies"])
         ]
 
-        lower_text = job_text.lower()
-        for skill, category, importance, excerpt in rules:
-            if skill.lower() in lower_text or (skill == "Django REST Framework" and "django" in lower_text):
-                detected_requirements.append({
-                    "skill_name": skill,
-                    "category": category,
-                    "importance": importance,
-                    "source_excerpt": f"Matched in job description: {skill}"
-                })
+        seen_skills = set()
+        for skill_name, cat, imp, triggers in SKILL_CATALOG:
+            for trig in triggers:
+                if trig in lower_text:
+                    if skill_name not in seen_skills:
+                        seen_skills.add(skill_name)
+                        detected_requirements.append({
+                            "skill_name": skill_name,
+                            "category": cat,
+                            "importance": imp,
+                            "source_excerpt": f"Matched in specification: {trig}"
+                        })
+                    break
 
+        # If custom role mentions specific terms not in text
+        if role_title:
+            rt_lower = role_title.lower()
+            if "frontend" in rt_lower or "react" in rt_lower:
+                for s, c, i in [("React", "framework", "required"), ("TypeScript", "language", "required"), ("HTML/CSS", "language", "preferred"), ("API Testing", "testing", "required")]:
+                    if s not in seen_skills:
+                        seen_skills.add(s)
+                        detected_requirements.append({"skill_name": s, "category": c, "importance": i, "source_excerpt": f"Core competency for {role_title}"})
+            elif "devops" in rt_lower or "cloud" in rt_lower or "sre" in rt_lower:
+                for s, c, i in [("AWS", "cloud", "required"), ("Docker", "devops", "required"), ("Kubernetes", "devops", "preferred"), ("Terraform", "cloud", "preferred"), ("CI/CD", "devops", "required")]:
+                    if s not in seen_skills:
+                        seen_skills.add(s)
+                        detected_requirements.append({"skill_name": s, "category": c, "importance": i, "source_excerpt": f"Core competency for {role_title}"})
+            elif "ai" in rt_lower or "machine learning" in rt_lower or "data" in rt_lower:
+                for s, c, i in [("Python", "language", "required"), ("Machine Learning", "architecture", "required"), ("PyTorch", "framework", "required"), ("Vector Databases", "database", "required"), ("SQL", "language", "required")]:
+                    if s not in seen_skills:
+                        seen_skills.add(s)
+                        detected_requirements.append({"skill_name": s, "category": c, "importance": i, "source_excerpt": f"Core competency for {role_title}"})
+            elif "full" in rt_lower and "stack" in rt_lower:
+                for s, c, i in [("TypeScript", "language", "required"), ("React", "framework", "required"), ("Node.js", "framework", "required"), ("PostgreSQL", "database", "required"), ("REST APIs", "architecture", "required")]:
+                    if s not in seen_skills:
+                        seen_skills.add(s)
+                        detected_requirements.append({"skill_name": s, "category": c, "importance": i, "source_excerpt": f"Core competency for {role_title}"})
+
+        # Fallback if text was brief or non-technical
         if not detected_requirements:
             detected_requirements = [
-                {"skill_name": "Python", "category": "language", "importance": "required", "source_excerpt": "Default core requirement"},
-                {"skill_name": "Django REST Framework", "category": "framework", "importance": "required", "source_excerpt": "Backend framework requirement"},
-                {"skill_name": "PostgreSQL", "category": "database", "importance": "required", "source_excerpt": "Database persistence requirement"},
-                {"skill_name": "API Testing", "category": "testing", "importance": "required", "source_excerpt": "Quality assurance requirement"}
+                {"skill_name": "Software Engineering Fundamentals", "category": "architecture", "importance": "required", "source_excerpt": "Core development foundation"},
+                {"skill_name": "Git & Version Control", "category": "tools", "importance": "required", "source_excerpt": "Code collaboration requirement"},
+                {"skill_name": "API Design & Integration", "category": "architecture", "importance": "required", "source_excerpt": "System integration requirement"},
+                {"skill_name": "Automated Testing", "category": "testing", "importance": "preferred", "source_excerpt": "Software quality assurance"}
             ]
 
+        final_title = role_title or ("Software Engineer" if not detected_requirements else "Custom Career Target")
         return {
-            "role_title": "Junior Backend Developer",
-            "summary": "Extracted requirements via OpenRouter pipeline (with rule engine validation).",
+            "role_title": final_title,
+            "summary": f"Extracted {len(detected_requirements)} verified technical requirements for {final_title}.",
             "requirements": detected_requirements,
         }
 

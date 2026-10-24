@@ -93,12 +93,6 @@ DATABASES = {
     }
 }
 
-if 'test' in sys.argv or any('pytest' in arg for arg in sys.argv):
-    DATABASES['default'] = {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': ':memory:',
-    }
-
 NEON_REALTIME_SQL_API_URL = os.getenv('Realtime_SQL_API_endpoint_URL', '')
 
 AUTH_PASSWORD_VALIDATORS = [
