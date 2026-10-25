@@ -53,6 +53,9 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
 
 export const api = {
   // Member 1: Profile, Evidence & CV Upload
+  createProfile: (data: Partial<UserProfile>): Promise<UserProfile> =>
+    apiFetch<UserProfile>('/profiles/', { method: 'POST', body: JSON.stringify(data) }),
+
   getProfile: (userId: string = 'demo_user'): Promise<UserProfile> =>
     apiFetch<UserProfile>(`/profiles/me/?user_id=${userId}`),
 

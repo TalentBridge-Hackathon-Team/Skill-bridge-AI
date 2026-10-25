@@ -65,7 +65,25 @@ else
     echo "SQS -> Lambda trigger mapping already active."
 fi
 
-# 5. CloudWatch Metric Alarm
+# 5. DynamoDB UserProfile Table
+echo "Ensuring DynamoDB table 'skillbridge-user-profiles' exists..."
+TABLE_STATUS=$(awslocal dynamodb describe-table --table-name skillbridge-user-profiles --query 'Table.TableStatus' --output text 2>/dev/null || true)
+if [ -z "$TABLE_STATUS" ] || [ "$TABLE_STATUS" = "None" ]; then
+    awslocal dynamodb create-table \
+        --table-name skillbridge-user-profiles \
+        --attribute-definitions \
+            AttributeName=user_id,AttributeType=S \
+            AttributeName=record_type,AttributeType=S \
+        --key-schema \
+            AttributeName=user_id,KeyType=HASH \
+            AttributeName=record_type,KeyType=RANGE \
+        --billing-mode PAY_PER_REQUEST
+    echo "DynamoDB table 'skillbridge-user-profiles' created."
+else
+    echo "DynamoDB table 'skillbridge-user-profiles' already exists (status: $TABLE_STATUS)."
+fi
+
+# 7. CloudWatch Metric Alarm
 echo "Configuring CloudWatch error alarm..."
 awslocal cloudwatch put-metric-alarm \
     --alarm-name skillbridge-resume-processor-errors \
@@ -79,7 +97,7 @@ awslocal cloudwatch put-metric-alarm \
     --comparison-operator GreaterThanOrEqualToThreshold \
     --dimensions Name=FunctionName,Value=skillbridge-resume-processor || true
 
-# 6. API Gateway REST API & Proxy Route
+# 8. API Gateway REST API & Proxy Route
 echo "Ensuring API Gateway REST API exists..."
 API_ID=$(awslocal apigateway get-rest-apis --query "items[?name=='SkillBridge Django API'].id" --output text 2>/dev/null || true)
 if [ -z "$API_ID" ] || [ "$API_ID" = "None" ]; then
