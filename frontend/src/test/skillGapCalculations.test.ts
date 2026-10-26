@@ -151,7 +151,8 @@ describe('Skill Gap Calculations (Member 3 Logic)', () => {
           requirement_id: 'req_mysql',
           skill_name: 'MySQL',
           category: 'database',
-          importance: 'required'
+          importance: 'required',
+          source_excerpt: 'Relational database systems'
         }
       ];
       const profile: Partial<UserProfile> = {
@@ -179,7 +180,7 @@ describe('Skill Gap Calculations (Member 3 Logic)', () => {
 
     it('scales assessment effort continuously (score 7/10 needs fewer hours than score 2/10)', () => {
       const reqs: Requirement[] = [
-        { id: 'r1', skill_name: 'Python', category: 'language', importance: 'required' }
+        { id: 'r1', skill_name: 'Python', category: 'language', importance: 'required', source_excerpt: 'Python 3 development' }
       ];
 
       const highResult = matchRequirementsToProfile(reqs, null, [{ target_skill: 'Python', score: 7 }]);

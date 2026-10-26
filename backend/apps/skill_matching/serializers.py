@@ -8,6 +8,8 @@ class MatchReportSerializer(serializers.ModelSerializer):
     supporting_evidence = serializers.SerializerMethodField()
 
     effort_breakdown = serializers.SerializerMethodField()
+    is_deferred = serializers.SerializerMethodField()
+    in_sprint_scope = serializers.SerializerMethodField()
 
     class Meta:
         model = MatchReport
@@ -29,8 +31,22 @@ class MatchReportSerializer(serializers.ModelSerializer):
             'supporting_evidence_ids',
             'supporting_evidence',
             'source_excerpt',
+            'is_deferred',
+            'in_sprint_scope',
             'created_at'
         ]
+
+    def get_is_deferred(self, obj):
+        deferred_skills = set(self.context.get('deferred_skills', []))
+        if not deferred_skills:
+            return False
+        return obj.skill_name in deferred_skills
+
+    def get_in_sprint_scope(self, obj):
+        if obj.status == 'Demonstrated':
+            return False
+        deferred_skills = set(self.context.get('deferred_skills', []))
+        return obj.skill_name not in deferred_skills
 
     def get_effort_breakdown(self, obj):
         if hasattr(obj, 'effort_breakdown') and obj.effort_breakdown:

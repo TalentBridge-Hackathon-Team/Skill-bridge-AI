@@ -26,7 +26,7 @@ class OpenRouterService:
             settings, "OPENROUTER_BASE_URL", os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         ).rstrip("/")
         self.text_model = getattr(
-            settings, "OPENROUTER_TEXT_MODEL", os.getenv("OPENROUTER_TEXT_MODEL", "google/gemma-4-26b-a4b-it:free")
+            settings, "OPENROUTER_TEXT_MODEL", os.getenv("OPENROUTER_TEXT_MODEL", "cohere/north-mini-code:free")
         )
         self.embed_model = getattr(
             settings, "OPENROUTER_EMBED_MODEL", os.getenv("OPENROUTER_EMBED_MODEL", "nvidia/nemotron-3-embed-1b:free")
@@ -53,11 +53,13 @@ class OpenRouterService:
         prompt: str,
         system_prompt: Optional[str] = None,
         temperature: float = 0.2,
-        max_tokens: int = 1000,
+        max_tokens: int = 2500,
+        conversation_messages: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """
         Invokes OpenRouter chat completions with OPENROUTER_TEXT_MODEL.
         Includes graceful fallback handling for rate limits (429) or offline states.
+        Supports multi-turn conversation history for self-supervised context awareness.
         """
         if not self.api_key:
             logger.warning("OPENROUTER_API_KEY not configured. Running in fallback scaffold mode.")
@@ -71,49 +73,97 @@ class OpenRouterService:
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
 
-        payload = {
-            "model": self.text_model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
+        if conversation_messages:
+            for msg in conversation_messages:
+                role = msg.get("role") or ("user" if msg.get("sender") == "learner" else "assistant")
+                content = msg.get("content") or msg.get("text", "")
+                if content:
+                    messages.append({"role": role, "content": content})
+            if prompt and (not messages or messages[-1].get("content") != prompt):
+                messages.append({"role": "user", "content": prompt})
+        else:
+            messages.append({"role": "user", "content": prompt})
 
-        try:
-            response = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers=self._get_headers(),
-                json=payload,
-                timeout=25,
-            )
-            if response.status_code == 200:
-                data = response.json()
-                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                return {
-                    "success": True,
-                    "text": content,
-                    "model": data.get("model", self.text_model),
-                    "usage": data.get("usage", {}),
-                }
-            else:
-                logger.warning(
-                    f"OpenRouter text generation returned status {response.status_code}: {response.text[:200]}"
-                )
-                return {
-                    "success": False,
-                    "error": f"HTTP {response.status_code}: {response.text[:200]}",
-                    "text": "Fallback response: Upstream model temporarily unavailable or rate-limited.",
-                    "model": self.text_model,
-                }
-        except Exception as exc:
-            logger.error(f"Error calling OpenRouter text generation: {exc}")
-            return {
-                "success": False,
-                "error": str(exc),
-                "text": "Fallback response: Connection to OpenRouter failed.",
-                "model": self.text_model,
+        # Multi-model fallback cascade to guarantee high availability and prevent 429 rate limit stalls
+        configured_models = []
+        if self.text_model:
+            configured_models = [m.strip() for m in self.text_model.split(",") if m.strip()]
+
+        candidate_models = [
+            *configured_models,
+            "google/gemma-4-31b-it:free",
+            "google/gemma-4-26b-a4b-it:free",
+            "cohere/north-mini-code:free",
+            "nvidia/nemotron-3.5-lightning:free",
+            "poolside/laguna-s-2.1:free",
+            "liquid/lfm-2.5-2.6b:free",
+            "recursive/flint-v1.0:free",
+            "xingchen-agi/xing4.0-29b-a4b:free",
+            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+        ]
+        # De-duplicate while preserving priority order
+        seen_models = set()
+        models_to_try = [m for m in candidate_models if m and not (m in seen_models or seen_models.add(m))]
+
+        last_error = "All candidate models failed"
+        for candidate_model in models_to_try:
+            payload = {
+                "model": candidate_model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
             }
+
+            try:
+                response = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=self._get_headers(),
+                    json=payload,
+                    timeout=25,
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    msg = data.get("choices", [{}])[0].get("message", {})
+                    content = msg.get("content") or ""
+                    import re
+                    # Handle reasoning models where output is stored in reasoning or thinking
+                    if not content and msg.get("reasoning"):
+                        raw_reasoning = msg.get("reasoning", "")
+                        # Only use reasoning if it contains an actual answer, otherwise avoid leaking scratchpad
+                        content = raw_reasoning
+
+                    if content:
+                        content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+
+                    if content and content.strip():
+                        return {
+                            "success": True,
+                            "text": content.strip(),
+                            "model": data.get("model", candidate_model),
+                            "usage": data.get("usage", {}),
+                        }
+                    else:
+                        logger.info(f"Model {candidate_model} returned empty content, trying next fallback.")
+                else:
+                    last_error = f"HTTP {response.status_code}: {response.text[:150]}"
+                    logger.warning(
+                        f"OpenRouter model {candidate_model} returned status {response.status_code}, cascading to fallback."
+                    )
+                    # If daily account limit on free models is exhausted, cascading to other free models won't help
+                    if "free-models-per-day" in response.text or "free limit" in response.text:
+                        logger.warning("OpenRouter free tier daily quota exhausted across account. Halting free cascade.")
+                        break
+            except Exception as exc:
+                last_error = str(exc)
+                logger.warning(f"Error calling OpenRouter model {candidate_model}: {exc}, cascading to next model.")
+
+        return {
+            "success": False,
+            "error": last_error,
+            "text": "Fallback response: Upstream model temporarily unavailable or rate-limited.",
+            "model": self.text_model,
+        }
 
     def extract_job_requirements(self, job_text: str, role_title: Optional[str] = None) -> Dict[str, Any]:
         """

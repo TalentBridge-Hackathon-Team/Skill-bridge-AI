@@ -125,7 +125,7 @@ export default function CustomRoleModal({
                 Analyze Custom Role / Career Target with AI
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                AI extracts requirements, categorizes skills, and matches against your profile in Neon DB.
+                AI analyzes job requirements and compares them against your verified skills.
               </p>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
-import { Plus, ExternalLink, Save, Upload, FileText, CheckCircle2, Cloud, Zap } from 'lucide-react';
+import { Plus, ExternalLink, Save, Upload, FileText, CheckCircle2 } from 'lucide-react';
 import { api } from '../services/api';
 import type { UserProfile, SkillEvidence, ResumeUploadResponse } from '../types';
 
@@ -172,10 +172,10 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
           {/* Resume / CV Upload Section */}
           <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800/80 bg-white dark:bg-[#0e131f] p-6 space-y-4 shadow-xs">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
-              <FileText className="w-4 h-4 text-slate-600 dark:text-slate-300" /> Upload CV / Resume (RAG Evidence)
+              <FileText className="w-4 h-4 text-slate-600 dark:text-slate-300" /> Upload Resume
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Upload your CV (.pdf, .docx, .txt). The system parses and indexes evidence using RAG embeddings.
+              Upload your resume (.pdf, .docx, or .txt) to automatically extract your skills, experience, and projects.
             </p>
 
             <form onSubmit={handleResumeUpload} className="space-y-3">
@@ -192,7 +192,7 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
                 className="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-4 py-2 text-xs font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors"
               >
                 <Upload className="w-3.5 h-3.5" />
-                {isUploading ? 'Uploading & Indexing...' : 'Upload & Parse CV'}
+                {isUploading ? 'Uploading...' : 'Upload Resume'}
               </button>
 
               {uploadMessage && (
@@ -202,29 +202,14 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
               )}
 
               {uploadResult?.s3?.success && (
-                <div className="rounded-xl border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/20 p-3 space-y-2 text-xs animate-in fade-in">
-                  <div className="flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400">
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/20 p-3 space-y-1 text-xs animate-in fade-in">
+                  <div className="flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-400">
                     <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                    <span>Cloud Pipeline Activated</span>
+                    <span>Resume uploaded successfully</span>
                   </div>
-                  <div className="space-y-1.5 text-slate-600 dark:text-slate-300 pt-1 border-t border-emerald-200 dark:border-emerald-900/40">
-                    <div className="flex items-start gap-1.5 text-[11px]">
-                      <Cloud className="w-3.5 h-3.5 text-cyan-500 shrink-0 mt-0.5" />
-                      <div>
-                        <span className="text-slate-400 block text-[10px]">Amazon S3 Storage:</span>
-                        <span className="font-mono text-cyan-600 dark:text-cyan-300 break-all">{uploadResult.s3.s3_url}</span>
-                      </div>
-                    </div>
-                    {uploadResult.sqs?.success && (
-                      <div className="flex items-start gap-1.5 text-[11px]">
-                        <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-                        <div>
-                          <span className="text-slate-400 block text-[10px]">Amazon SQS Queue ➔ Lambda:</span>
-                          <span className="font-mono text-amber-600 dark:text-amber-300">{uploadResult.sqs.message_id}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
+                    Your skills and background are saved to your profile and ready for job matching.
+                  </p>
                 </div>
               )}
             </form>

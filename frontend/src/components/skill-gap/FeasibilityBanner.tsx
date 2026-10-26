@@ -29,29 +29,47 @@ export default function FeasibilityBanner({ feasibility }: FeasibilityBannerProp
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800/80">
         <div className="flex items-center gap-2.5">
           <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-cyan-400">
-            <Clock className="w-5 h-5" />
+            {feasibility.estimated_plan_effort_hours === 0 ? (
+              <ShieldCheck className="w-5 h-5 text-emerald-500" />
+            ) : (
+              <Clock className="w-5 h-5" />
+            )}
           </div>
           <div>
             <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
               Deadline Feasibility Assessment
             </h3>
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              Validated against target {feasibility.days_remaining}-day window and planned study commitment
+              {feasibility.estimated_plan_effort_hours === 0
+                ? 'All requirements and competencies demonstrated! Ready for application review.'
+                : `Validated against target ${feasibility.days_remaining}-day window and planned study commitment`}
             </span>
           </div>
         </div>
 
         <div
-          className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getFeasibilityColor(
-            feasibility.feasibility_band
-          )} flex items-center gap-1.5 self-start sm:self-auto`}
+          className={`px-3 py-1.5 rounded-full text-xs font-bold border ${
+            feasibility.estimated_plan_effort_hours === 0
+              ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/30'
+              : getFeasibilityColor(feasibility.feasibility_band)
+          } flex items-center gap-1.5 self-start sm:self-auto`}
         >
-          {feasibility.feasibility_band === 'Likely feasible' ? (
-            <ShieldCheck className="w-4 h-4" />
+          {feasibility.estimated_plan_effort_hours === 0 ? (
+            <>
+              <ShieldCheck className="w-4 h-4" />
+              Goal Completed! 🎉
+            </>
+          ) : feasibility.feasibility_band === 'Likely feasible' ? (
+            <>
+              <ShieldCheck className="w-4 h-4" />
+              {feasibility.feasibility_band}
+            </>
           ) : (
-            <AlertOctagon className="w-4 h-4" />
+            <>
+              <AlertOctagon className="w-4 h-4" />
+              {feasibility.feasibility_band}
+            </>
           )}
-          {feasibility.feasibility_band}
         </div>
       </div>
 
@@ -70,14 +88,25 @@ export default function FeasibilityBanner({ feasibility }: FeasibilityBannerProp
         </div>
 
         <div className="rounded-xl bg-slate-50 dark:bg-slate-950/60 p-3.5 border border-slate-200/80 dark:border-slate-800/80">
-          <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block mb-1">
-            Estimated Remediation Effort
-          </span>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block">
+              Estimated Remediation Effort
+            </span>
+            {feasibility.is_scoped_down && (
+              <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded-md border border-amber-200/60 dark:border-amber-900/60">
+                ⚡ Sprint Scoped
+              </span>
+            )}
+          </div>
           <div className="text-2xl font-bold text-slate-900 dark:text-indigo-300">
             {feasibility.estimated_plan_effort_hours}{' '}
             <span className="text-xs font-normal text-slate-400">hrs</span>
           </div>
-          <p className="text-[11px] text-slate-400 mt-0.5">Prioritized tasks + 4h app prep</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            {feasibility.is_scoped_down
+              ? `Core must-haves only (${feasibility.full_plan_effort_hours}h full scope, saved ${feasibility.deferred_hours}h)`
+              : 'Prioritized tasks + 4h app prep'}
+          </p>
         </div>
 
         <div className="rounded-xl bg-slate-50 dark:bg-slate-950/60 p-3.5 border border-slate-200/80 dark:border-slate-800/80">

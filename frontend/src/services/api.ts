@@ -83,11 +83,55 @@ export const api = {
     apiFetch<Goal>('/goals/', { method: 'POST', body: JSON.stringify(data) }),
 
   // Member 3: Skill Matching & Feasibility Engine
-  runMatching: (analysisId: string, userId: string = 'demo_user'): Promise<{ analysis_id: string; role_title: string; results: MatchReport[]; feasibility?: FeasibilityAssessment; summary?: any }> =>
-    apiFetch(`/job-analyses/${analysisId}/match/?user_id=${userId}`, { method: 'POST' }),
+  runMatching: (
+    analysisId: string,
+    userId: string = 'demo_user',
+    daysRemaining?: number,
+    studyHoursPerWeek?: number
+  ): Promise<{ analysis_id: string; role_title: string; results: MatchReport[]; feasibility?: FeasibilityAssessment; summary?: any }> => {
+    const params = new URLSearchParams({ user_id: userId });
+    if (daysRemaining !== undefined) params.append('days_remaining', String(daysRemaining));
+    if (studyHoursPerWeek !== undefined) params.append('study_hours_per_week', String(studyHoursPerWeek));
+    return apiFetch(`/job-analyses/${analysisId}/match/?${params.toString()}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        user_id: userId,
+        days_remaining: daysRemaining,
+        study_hours_per_week: studyHoursPerWeek
+      })
+    });
+  },
 
-  getSkillGaps: (analysisId: string): Promise<{ analysis_id: string; results: MatchReport[]; feasibility?: FeasibilityAssessment; summary?: any }> =>
-    apiFetch(`/job-analyses/${analysisId}/gaps/`),
+  getSkillGaps: (
+    analysisId: string,
+    daysRemaining?: number,
+    studyHoursPerWeek?: number
+  ): Promise<{ analysis_id: string; results: MatchReport[]; feasibility?: FeasibilityAssessment; summary?: any }> => {
+    const params = new URLSearchParams();
+    if (daysRemaining !== undefined) params.append('days_remaining', String(daysRemaining));
+    if (studyHoursPerWeek !== undefined) params.append('study_hours_per_week', String(studyHoursPerWeek));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return apiFetch(`/job-analyses/${analysisId}/gaps/${qs}`);
+  },
+
+  inspectEvidence: (data: { repository_url: string; skill_name: string; title?: string; description?: string }): Promise<any> =>
+    apiFetch('/skill-matching/inspect-evidence/', { method: 'POST', body: JSON.stringify(data) }),
+
+  getRemediationAdvice: (data: {
+    skill_name: string;
+    category?: string;
+    importance?: string;
+    remediation_hours?: number;
+    effort_breakdown?: any;
+    user_id?: string;
+    experience_level?: string;
+    role_title?: string;
+    status?: string;
+    feasibility_status?: string;
+    days_remaining?: number;
+  }): Promise<any> =>
+    apiFetch('/skill-matching/remediation-advice/', { method: 'POST', body: JSON.stringify(data) }),
+
 
   // Member 4: Assessment, Roadmap, Deadline Feasibility & Application Checklist
   getAssessment: (taskId: string): Promise<AssessmentTask> =>

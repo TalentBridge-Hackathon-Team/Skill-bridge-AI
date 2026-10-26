@@ -7,8 +7,7 @@
 
 import type {
   JobAnalysis,
-  UserProfile,
-  SkillEvidence
+  UserProfile
 } from '../types';
 
 export interface TargetRoleOption {

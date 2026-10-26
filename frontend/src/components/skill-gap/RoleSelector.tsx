@@ -13,6 +13,11 @@ import {
   ArrowRight
 } from 'lucide-react';
 import type { TargetRoleOption } from '../../services/mockSkillGapData';
+import {
+  calculateHorizonCountdown,
+  evaluateAdaptiveCapacity,
+  updateDeadlineTimestamp
+} from '../../utils/horizonCapacityEngine';
 
 interface RoleSelectorProps {
   roles: TargetRoleOption[];
@@ -25,6 +30,8 @@ interface RoleSelectorProps {
   onSelectModeFilter: (mode: 'all' | 'job_specific' | 'goal_based') => void;
   onOpenCustomGoalModal: () => void;
   onNavigateToJDMatcher: () => void;
+  isAllCompleted?: boolean;
+  remainingEffortHours?: number;
 }
 
 export default function RoleSelector({
@@ -37,7 +44,9 @@ export default function RoleSelector({
   activeModeFilter,
   onSelectModeFilter,
   onOpenCustomGoalModal,
-  onNavigateToJDMatcher
+  onNavigateToJDMatcher,
+  isAllCompleted = false,
+  remainingEffortHours = 10
 }: RoleSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [showBudgetControls, setShowBudgetControls] = useState(false);
@@ -272,32 +281,84 @@ export default function RoleSelector({
           </div>
 
           {/* Time Budget & Capacity Controls */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-slate-800/80">
-            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/80 px-3.5 py-2 rounded-xl border border-slate-200/80 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300">
-              <Calendar className="w-4 h-4 text-indigo-500 shrink-0" />
-              <span>
-                {selectedRole.mode === 'job_specific' ? 'Deadline:' : 'Horizon:'}{' '}
-                <strong className="text-slate-900 dark:text-white">{daysRemaining}</strong> days left
-              </span>
-            </div>
+          {(() => {
+            const horizonCountdown = calculateHorizonCountdown(selectedRole.id, daysRemaining, isAllCompleted);
+            const effectiveDays = horizonCountdown.daysRemaining;
+            const adaptiveCapacity = evaluateAdaptiveCapacity(
+              remainingEffortHours,
+              effectiveDays,
+              studyHoursPerWeek,
+              isAllCompleted
+            );
 
-            <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900/80 px-3.5 py-2 rounded-xl border border-slate-200/80 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300">
-              <Clock className="w-4 h-4 text-indigo-500 shrink-0" />
-              <span>
-                Capacity: <strong className="text-slate-900 dark:text-white">{studyHoursPerWeek}</strong> hrs/wk
-              </span>
-            </div>
+            return (
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-slate-800/80">
+                {/* Dynamic Horizon / Deadline Countdown */}
+                <div className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs ${
+                  isAllCompleted
+                    ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                    : horizonCountdown.isExpired
+                    ? 'bg-rose-50 dark:bg-rose-950/60 border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300'
+                    : 'bg-slate-50 dark:bg-slate-900/80 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                }`}>
+                  <Calendar className="w-4 h-4 text-indigo-500 shrink-0" />
+                  <span>
+                    {selectedRole.mode === 'job_specific' ? 'Deadline:' : 'Horizon:'}{' '}
+                    {isAllCompleted ? (
+                      <strong className="font-bold">Completed! 🎉</strong>
+                    ) : horizonCountdown.isExpired ? (
+                      <strong className="font-bold">Deadline Reached (0d)</strong>
+                    ) : (
+                      <>
+                        <strong className="text-slate-900 dark:text-white">{effectiveDays}</strong> days left
+                      </>
+                    )}
+                  </span>
+                </div>
 
-            <button
-              type="button"
-              onClick={() => setShowBudgetControls(!showBudgetControls)}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors"
-              title="Adjust target deadline and study capacity"
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Adjust Time</span>
-            </button>
-          </div>
+                {/* Adaptive Study Capacity */}
+                <div className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs ${
+                  isAllCompleted
+                    ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                    : adaptiveCapacity.capacityStatus === 'increase_needed'
+                    ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-200'
+                    : 'bg-slate-50 dark:bg-slate-900/80 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                }`}>
+                  <Clock className="w-4 h-4 text-indigo-500 shrink-0" />
+                  <span>
+                    Capacity:{' '}
+                    {isAllCompleted ? (
+                      <strong>Fulfilled (0h)</strong>
+                    ) : (
+                      <>
+                        <strong className="text-slate-900 dark:text-white">{studyHoursPerWeek}</strong> hrs/wk
+                      </>
+                    )}
+                  </span>
+                  {!isAllCompleted && adaptiveCapacity.capacityStatus === 'increase_needed' && (
+                    <button
+                      type="button"
+                      onClick={() => onUpdateBudget(effectiveDays, adaptiveCapacity.recommendedWeeklyHours)}
+                      className="ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-200/80 dark:bg-amber-900 text-amber-900 dark:text-amber-100 hover:bg-amber-300 transition-colors cursor-pointer"
+                      title={`Capacity shortfall detected. Click to adjust commitment to ${adaptiveCapacity.recommendedWeeklyHours} hrs/wk (${adaptiveCapacity.recommendedDailyHours}h/day)`}
+                    >
+                      ⚡ Sync {adaptiveCapacity.recommendedWeeklyHours}h
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowBudgetControls(!showBudgetControls)}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                  title="Adjust target deadline and study capacity"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  <span>Adjust Time</span>
+                </button>
+              </div>
+            );
+          })()}
         </div>
       ) : (
         /* Empty State for the active mode */
@@ -357,7 +418,11 @@ export default function RoleSelector({
               min={3}
               max={120}
               value={daysRemaining}
-              onChange={e => onUpdateBudget(Number(e.target.value), studyHoursPerWeek)}
+              onChange={e => {
+                const newD = Number(e.target.value);
+                updateDeadlineTimestamp(selectedRole.id, newD);
+                onUpdateBudget(newD, studyHoursPerWeek);
+              }}
               className="w-full accent-indigo-600 dark:accent-cyan-400 cursor-pointer"
             />
           </div>

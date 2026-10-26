@@ -6,6 +6,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from .models import JobAnalysis, Requirement, Goal
 from .serializers import JobAnalysisSerializer, RequirementSerializer, GoalSerializer
 from services.openrouter_service import openrouter_service
+from services.domain_guard_service import domain_guard
 
 class JobAnalysisListCreateView(APIView):
     """
@@ -16,8 +17,11 @@ class JobAnalysisListCreateView(APIView):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get(self, request):
-        user_id = request.query_params.get("user_id", "demo_user")
-        analyses = JobAnalysis.objects.filter(user_id=user_id).order_by('-created_at')
+        user_id = request.query_params.get("user_id")
+        if user_id:
+            analyses = JobAnalysis.objects.filter(user_id=user_id).order_by('-created_at')
+        else:
+            analyses = JobAnalysis.objects.filter(user_id__in=["usr_demo_001", "demo_user"]).order_by('-created_at')
         serializer = JobAnalysisSerializer(analyses, many=True)
         return Response(serializer.data)
 
@@ -36,6 +40,29 @@ class JobAnalysisListCreateView(APIView):
 
         role_title = request.data.get("role_title") or request.data.get("title") or "Junior Backend Developer"
         mode = request.data.get("mode", "job_specific")
+
+        # Evaluate safety & domain support
+        safety_check = domain_guard.evaluate_input_safety_and_domain(job_text, role_title)
+        if not safety_check["is_safe"]:
+            return Response(
+                {
+                    "error": safety_check["error_type"],
+                    "message": safety_check["message"]
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not safety_check["is_tech_domain"]:
+            return Response(
+                {
+                    "error": "domain_in_development",
+                    "status": "domain_in_development",
+                    "detected_domain": safety_check.get("detected_domain", "Non-Technical"),
+                    "message": safety_check["message"],
+                    "suggested_tech_roles": safety_check.get("suggested_tech_roles", [])
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
 
         # Extract requirements using OpenRouter LLM (with deterministic rule engine validation)
         extraction_data = openrouter_service.extract_job_requirements(job_text or "(Screenshot provided)", role_title=role_title)
@@ -93,7 +120,7 @@ class JobAnalysisRequirementsUpdateView(APIView):
             return Response({"error": "Job analysis not found"}, status=status.HTTP_404_NOT_FOUND)
 
         req_list = request.data.get("requirements", [])
-        if req_list:
+        if isinstance(req_list, list):
             analysis.requirements.all().delete()
             for r in req_list:
                 Requirement.objects.create(
@@ -105,7 +132,11 @@ class JobAnalysisRequirementsUpdateView(APIView):
                     source_excerpt=r.get("source_excerpt", "User updated"),
                     user_confirmed=True
                 )
-        return Response({"message": "Requirements updated", "analysis_id": analysis_id})
+        return Response({
+            "message": "Requirements updated",
+            "analysis_id": analysis_id,
+            "analysis": JobAnalysisSerializer(analysis).data
+        })
 
 class GoalListCreateView(APIView):
     """

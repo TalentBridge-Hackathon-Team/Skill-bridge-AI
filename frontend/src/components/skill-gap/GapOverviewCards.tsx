@@ -159,7 +159,7 @@ export default function GapOverviewCards({ summary }: GapOverviewCardsProps) {
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-1.5 font-bold text-indigo-950 dark:text-cyan-300">
               <Layers className="w-4 h-4 text-indigo-500" />
-              <span>Deterministic Match Score Methodology</span>
+              <span>How Your Match Score Is Calculated</span>
             </div>
             <button
               type="button"

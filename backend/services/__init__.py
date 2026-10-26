@@ -2,4 +2,5 @@
 
 from .aws_service import resume_pipeline, ResumePipelineService
 from .openrouter_service import openrouter_service, OpenRouterService, job_extractor, JobExtractor
+from .gemini_service import gemini_service, GeminiService
 from .rag_multimodal_service import RAGMultimodalService

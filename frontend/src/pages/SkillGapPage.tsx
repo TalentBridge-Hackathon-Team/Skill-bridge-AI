@@ -3,11 +3,9 @@ import {
   ArrowRight,
   Share2,
   Plus,
-  RotateCcw,
   RefreshCw,
   AlertCircle,
-  Sparkles,
-  Layers
+  Sparkles
 } from 'lucide-react';
 import RoleSelector from '../components/skill-gap/RoleSelector';
 import GapOverviewCards from '../components/skill-gap/GapOverviewCards';
@@ -21,7 +19,7 @@ import {
   skillGapService,
   type SkillGapAnalysisResponse
 } from '../services/skillGapService';
-import type { TraceableMatchResult } from '../utils/skillGapCalculations';
+import { calculateFeasibility, type TraceableMatchResult } from '../utils/skillGapCalculations';
 import type { TargetRoleOption } from '../services/mockSkillGapData';
 import type { SkillEvidence } from '../types';
 
@@ -57,9 +55,10 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
   const loadAnalysis = useCallback(async (
     roleId?: string,
     customDays?: number,
-    customHours?: number
+    customHours?: number,
+    silent: boolean = false
   ) => {
-    setIsLoading(true);
+    if (!silent) setIsLoading(true);
     setError(null);
     try {
       const data = await skillGapService.runAnalysis(roleId, customDays, customHours);
@@ -76,33 +75,55 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
       console.error('Failed to run skill gap analysis:', err);
       setError(err.message || 'Failed to analyze skill gaps');
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }, []);
 
-  const isInitialLoaded = useRef(false);
-
-  // Load roles on mount and auto-select first active role from Neon DB
+  // Load roles on mount and auto-select active role from Neon DB
   useEffect(() => {
-    if (isInitialLoaded.current) return;
-    isInitialLoaded.current = true;
+    let isCancelled = false;
 
     skillGapService.getTargetRoles().then(loadedRoles => {
+      if (isCancelled) return;
       setRoles(loadedRoles);
-      if (loadedRoles && loadedRoles.length > 0) {
-        const firstRole = loadedRoles[0];
-        setSelectedRoleId(firstRole.id);
-        setDaysRemaining(firstRole.days_remaining);
-        setStudyHoursPerWeek(firstRole.study_hours_per_week);
-        loadAnalysis(firstRole.id, firstRole.days_remaining, firstRole.study_hours_per_week);
+      const activeId = skillGapService.getSelectedRoleId() || (loadedRoles && loadedRoles[0]?.id) || 'job_15f49367';
+      const targetRole = (loadedRoles || []).find(r => r.id === activeId) || (loadedRoles && loadedRoles[0]);
+      if (targetRole) {
+        setSelectedRoleId(targetRole.id);
+        setDaysRemaining(targetRole.days_remaining);
+        setStudyHoursPerWeek(targetRole.study_hours_per_week);
+        loadAnalysis(targetRole.id, targetRole.days_remaining, targetRole.study_hours_per_week);
       } else {
         loadAnalysis('job_15f49367');
       }
     }).catch(err => {
+      if (isCancelled) return;
       setError(err.message || 'Failed to connect to backend service');
       setIsLoading(false);
     });
+
+    return () => {
+      isCancelled = true;
+    };
   }, [loadAnalysis]);
+
+  // Synchronize when an assessment is passed
+  useEffect(() => {
+    const handlePassed = (e: any) => {
+      const skill = e.detail?.skill;
+      if (skill) {
+        loadAnalysis(selectedRoleId, daysRemaining, studyHoursPerWeek);
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('skillbridge_assessment_passed', handlePassed);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('skillbridge_assessment_passed', handlePassed);
+      }
+    };
+  }, [selectedRoleId, daysRemaining, studyHoursPerWeek, loadAnalysis]);
 
   const handleModeFilterChange = (newMode: 'all' | 'job_specific' | 'goal_based') => {
     setActiveModeFilter(newMode);
@@ -155,10 +176,37 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
     }
   };
 
+  const budgetDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
   const handleUpdateBudget = (newDays: number, newHours: number) => {
     setDaysRemaining(newDays);
     setStudyHoursPerWeek(newHours);
-    loadAnalysis(selectedRoleId, newDays, newHours);
+
+    // Optimistically update feasibility metrics immediately for silky-smooth slider UX
+    if (analysis?.feasibility && analysis.results) {
+      const dailyHours = Math.round((newHours / 7.0) * 10) / 10;
+      const newFeasibility = calculateFeasibility(newDays, dailyHours, analysis.results);
+      const deferredSet = new Set(newFeasibility.deferred_skills || []);
+
+      const updatedResults = analysis.results.map(r => ({
+        ...r,
+        is_deferred: deferredSet.has(r.skill_name),
+        in_sprint_scope: r.status !== 'Demonstrated' && !deferredSet.has(r.skill_name)
+      }));
+
+      setAnalysis(prev => prev ? ({
+        ...prev,
+        feasibility: newFeasibility,
+        results: updatedResults
+      }) : prev);
+    }
+
+    if (budgetDebounceRef.current) {
+      clearTimeout(budgetDebounceRef.current);
+    }
+    budgetDebounceRef.current = setTimeout(() => {
+      loadAnalysis(selectedRoleId, newDays, newHours, true);
+    }, 250);
   };
 
   const handleOpenLinkModal = (skillName?: string) => {
@@ -171,16 +219,87 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
   ) => {
     await skillGapService.linkEvidence(evidenceData);
     await loadAnalysis(selectedRoleId, daysRemaining, studyHoursPerWeek);
-    showToast(`Linked evidence "${evidenceData.title}" to ${evidenceData.skill_name}! Match recalculated.`);
+    showToast(`Added evidence for ${evidenceData.skill_name}.`);
   };
 
-  const handleResetData = () => {
-    skillGapService.resetToDefault();
-    setSelectedRoleId('job_15f49367');
-    setDaysRemaining(14);
-    setStudyHoursPerWeek(14);
-    loadAnalysis('job_15f49367', 14, 14);
-    showToast('Reset data to initial sandbox state.');
+  const handleUpdateRequirementPriority = async (requirementId: string, newPriority: 'High' | 'Medium' | 'Low') => {
+    if (!analysis?.role?.id) return;
+    const currentReqs = analysis.role.requirements || [];
+    const updated = currentReqs.map(r => {
+      const isMatch =
+        r.id === requirementId ||
+        (r as any).requirement_id === requirementId ||
+        r.skill_name.toLowerCase() === requirementId.toLowerCase();
+      return isMatch ? { ...r, priority: newPriority } : r;
+    });
+    try {
+      await skillGapService.updateRequirements(analysis.role.id, updated);
+      await loadAnalysis(analysis.role.id, daysRemaining, studyHoursPerWeek);
+      showToast(`Priority updated to ${newPriority}.`);
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to update requirement priority');
+    }
+  };
+
+  const handleRemoveRequirement = async (requirementId: string) => {
+    if (!analysis?.role?.id) return;
+    const currentReqs = analysis.role.requirements || [];
+    const updated = currentReqs.filter(r => {
+      const isMatch =
+        r.id === requirementId ||
+        (r as any).requirement_id === requirementId ||
+        r.skill_name.toLowerCase() === requirementId.toLowerCase();
+      return !isMatch;
+    });
+    try {
+      await skillGapService.updateRequirements(analysis.role.id, updated);
+      await loadAnalysis(analysis.role.id, daysRemaining, studyHoursPerWeek);
+      showToast('Requirement removed.');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to remove requirement');
+    }
+  };
+
+  const handleAddRequirement = async (req: {
+    skill_name: string;
+    category: string;
+    importance: 'required' | 'preferred';
+    priority: 'High' | 'Medium' | 'Low';
+  }) => {
+    if (!analysis?.role?.id) return;
+    const currentReqs = analysis.role.requirements || [];
+    const updated = [
+      ...currentReqs,
+      {
+        id: `req_${Date.now()}`,
+        skill_name: req.skill_name,
+        category: req.category,
+        importance: req.importance,
+        priority: req.priority,
+        source_excerpt: 'Custom user competency'
+      }
+    ];
+    try {
+      await skillGapService.updateRequirements(analysis.role.id, updated);
+      await loadAnalysis(analysis.role.id, daysRemaining, studyHoursPerWeek);
+      showToast(`Added "${req.skill_name}".`);
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to add requirement');
+    }
+  };
+
+  const handleRefresh = async () => {
+    try {
+      setIsLoading(true);
+      const updatedRoles = await skillGapService.getTargetRoles();
+      setRoles(updatedRoles);
+      await loadAnalysis(selectedRoleId, daysRemaining, studyHoursPerWeek);
+      showToast('Analysis & feasibility metrics refreshed.');
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to refresh analysis');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -206,15 +325,6 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
 
         {/* Action Header Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setIsCustomGoalModalOpen(true)}
-            className="flex items-center gap-1.5 rounded-xl border border-cyan-200 dark:border-cyan-800 bg-cyan-50/80 dark:bg-cyan-950/40 px-3.5 py-2 text-xs font-semibold text-cyan-700 dark:text-cyan-300 hover:bg-cyan-100 dark:hover:bg-cyan-900/40 transition-colors shadow-xs"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-            <span>+ Set Career Goal</span>
-          </button>
-
           <button
             type="button"
             onClick={() => setIsMatrixModalOpen(true)}
@@ -243,11 +353,12 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
 
           <button
             type="button"
-            onClick={handleResetData}
-            title="Reset sandbox state"
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            onClick={handleRefresh}
+            disabled={isLoading}
+            title="Refresh analysis & recalculate feasibility"
+            className="p-2 rounded-xl text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <RotateCcw className="w-4 h-4" />
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-indigo-500' : ''}`} />
           </button>
         </div>
       </div>
@@ -265,6 +376,16 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
           onSelectModeFilter={handleModeFilterChange}
           onOpenCustomGoalModal={() => setIsCustomGoalModalOpen(true)}
           onNavigateToJDMatcher={() => setActiveTab('analysis')}
+          isAllCompleted={Boolean(
+            analysis?.results &&
+            analysis.results.length > 0 &&
+            analysis.results.every(r => r.status === 'Demonstrated')
+          )}
+          remainingEffortHours={
+            analysis?.results
+              ? analysis.results.filter(r => r.status !== 'Demonstrated').reduce((acc, r) => acc + (r.effort_hours_estimate || 0), 0)
+              : 0
+          }
         />
       )}
 
@@ -272,7 +393,7 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
       {isLoading && (
         <div className="p-8 text-center bg-white dark:bg-[#0e131f] rounded-2xl border border-slate-200 dark:border-slate-800">
           <RefreshCw className="w-6 h-6 animate-spin text-indigo-500 mx-auto mb-2" />
-          <span className="text-xs text-slate-500">Calculating deterministic skill match...</span>
+          <span className="text-xs text-slate-500">Analyzing your skills and requirements...</span>
         </div>
       )}
 
@@ -308,6 +429,11 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
             onSelectSkill={item => setSelectedSkill(item)}
             onOpenLinkModal={skillName => handleOpenLinkModal(skillName)}
             onNavigateTab={setActiveTab}
+            daysRemaining={daysRemaining}
+            studyHoursPerWeek={studyHoursPerWeek}
+            onUpdateRequirementPriority={handleUpdateRequirementPriority}
+            onRemoveRequirement={handleRemoveRequirement}
+            onAddRequirement={handleAddRequirement}
           />
         </div>
       )}
@@ -318,6 +444,10 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
         onClose={() => setSelectedSkill(null)}
         onOpenLinkModal={skillName => handleOpenLinkModal(skillName)}
         onNavigateTab={setActiveTab}
+        userExperienceLevel={analysis?.profile?.experience_level || 'Entry Level'}
+        targetRoleTitle={analysis?.role?.role_title || 'AI & Machine Learning Engineer'}
+        userId={analysis?.profile?.user_id || 'usr_demo_001'}
+        feasibility={analysis?.feasibility}
       />
 
       {/* Link Evidence Modal */}

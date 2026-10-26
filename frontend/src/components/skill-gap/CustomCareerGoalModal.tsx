@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { X, Sparkles, Target, Calendar, Clock, Loader2, ArrowRight } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { X, Sparkles, Target, Calendar, Clock, Loader2, ArrowRight, AlertTriangle, ShieldAlert } from 'lucide-react';
+
+import { evaluateInputSafetyAndDomain } from '../../utils/domainGuard';
 
 interface CustomCareerGoalModalProps {
   isOpen: boolean;
@@ -51,6 +53,35 @@ export default function CustomCareerGoalModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    if (isOpen) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  const liveCheck = useMemo(() => {
+    const res = evaluateInputSafetyAndDomain(goalDescription, roleTitle);
+    if (res.type === 'security') {
+      return {
+        type: 'security' as const,
+        message: res.message!
+      };
+    }
+    if (res.type === 'domain') {
+      return {
+        type: 'domain' as const,
+        domainName: res.detectedDomain!,
+        alternatives: res.alternatives || [],
+        message: res.message!
+      };
+    }
+    return null;
+  }, [roleTitle, goalDescription]);
+
   if (!isOpen) return null;
 
   const handleApplyInspiration = (inspiration: typeof GOAL_INSPIRATIONS[0]) => {
@@ -69,6 +100,16 @@ export default function CustomCareerGoalModal({
     }
     if (!goalDescription.trim()) {
       setError('Please describe what you want to achieve or learn in this career milestone.');
+      return;
+    }
+
+    if (liveCheck?.type === 'security') {
+      setError(liveCheck.message);
+      return;
+    }
+
+    if (liveCheck?.type === 'domain') {
+      setError(liveCheck.message);
       return;
     }
 
@@ -126,6 +167,55 @@ export default function CustomCareerGoalModal({
           {error && (
             <div className="p-3 text-xs rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900">
               {error}
+            </div>
+          )}
+
+          {/* Live Domain In-Development Notification */}
+          {liveCheck?.type === 'domain' && (
+            <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 text-xs text-amber-800 dark:text-amber-200 space-y-2 animate-in fade-in duration-150">
+              <div className="flex items-center gap-2 font-bold">
+                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                <span>Domain In Active Development ({liveCheck.domainName})</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+                {liveCheck.message}
+              </p>
+              {liveCheck.alternatives && (
+                <div className="pt-1">
+                  <span className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400 block mb-1">
+                    Try these tech-adjacent specializations:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {liveCheck.alternatives.map((alt, aIdx) => (
+                      <button
+                        key={aIdx}
+                        type="button"
+                        onClick={() => {
+                          setRoleTitle(alt);
+                          setGoalDescription(`Build production competence for ${alt}. Focus on modern programming, system architecture, and verifiable portfolio evidence.`);
+                          setError(null);
+                        }}
+                        className="text-[11px] px-2 py-0.5 rounded-lg bg-white dark:bg-slate-800 text-amber-900 dark:text-amber-100 border border-amber-300 dark:border-amber-700 hover:border-amber-500 transition-colors font-medium cursor-pointer"
+                      >
+                        +{alt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Live Security & Verification Guardrail Alert */}
+          {liveCheck?.type === 'security' && (
+            <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 text-xs text-rose-800 dark:text-rose-200 space-y-1.5 animate-in fade-in duration-150">
+              <div className="flex items-center gap-2 font-bold">
+                <ShieldAlert className="w-4 h-4 text-rose-500 shrink-0" />
+                <span>Verification Guardrail</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-rose-700 dark:text-rose-300">
+                {liveCheck.message}
+              </p>
             </div>
           )}
 

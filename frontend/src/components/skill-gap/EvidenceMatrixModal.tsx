@@ -3,10 +3,6 @@ import {
   X,
   Layers,
   ExternalLink,
-  CheckCircle2,
-  AlertTriangle,
-  FileQuestion,
-  HelpCircle,
   Share2,
   FolderGit2
 } from 'lucide-react';

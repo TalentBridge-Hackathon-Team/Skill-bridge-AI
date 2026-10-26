@@ -4,16 +4,9 @@ import {
   Target,
   Zap,
   Briefcase,
-  Sparkles,
   ChevronRight,
-  Clock,
   Compass,
-  Calendar,
-  CheckCircle2,
-  AlertCircle,
-  HelpCircle,
-  ShieldCheck,
-  ArrowRight
+  Calendar
 } from 'lucide-react';
 import { api } from '../services/api';
 import type { UserProfile, JobAnalysis } from '../types';
@@ -165,7 +158,7 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
               <div className="py-4 flex items-center justify-between text-xs sm:text-sm">
                 <span className="text-slate-700 dark:text-slate-300 font-medium">Resume strength</span>
                 <span className="text-slate-400 dark:text-slate-500 font-medium">
-                  {hasResume ? 'Uploaded (Verified in S3)' : 'No data'}
+                  {hasResume ? 'Uploaded & ready' : 'No data'}
                 </span>
               </div>
               <div className="py-4 flex items-center justify-between text-xs sm:text-sm">
@@ -186,7 +179,7 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
           </div>
 
           <div className="pt-4 border-t border-slate-100 dark:border-slate-800/60 mt-4 flex items-center justify-between text-xs text-slate-400">
-            <span>Synchronized with Neon PostgreSQL & LocalStack S3</span>
+            <span>All progress up to date</span>
             <button
               onClick={() => setActiveTab('gaps')}
               className="text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-black dark:hover:text-white flex items-center gap-1 transition-colors"
@@ -350,7 +343,7 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
                   <span className="text-[10px] text-slate-400">Matching</span>
                 </div>
                 <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">Skill Gap Report</div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">Deterministic matching engine and deadline feasibility band.</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">AI evidence matching engine and deadline feasibility band.</p>
               </div>
 
               <div

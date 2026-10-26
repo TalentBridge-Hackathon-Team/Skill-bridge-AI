@@ -324,7 +324,9 @@ class SkillMatchingEngine:
         requirements: List[Dict[str, Any]],
         profile: Dict[str, Any],
         completed_assessments: Optional[List[Dict[str, Any]]] = None,
-        use_embeddings: bool = True
+        use_embeddings: bool = True,
+        days_remaining: Optional[int] = None,
+        study_hours_per_day: Optional[float] = None
     ) -> List[Dict[str, Any]]:
         """
         Compare target requirements against profile evidence records, embeddings, and self-reported skills.
@@ -355,7 +357,7 @@ class SkillMatchingEngine:
             if (e.get("review_status") == "verified" or e.get("status") == "verified") and e.get("skill_name")
         }
         for a in assessments:
-            if a.get("score", 0) >= 8 and a.get("target_skill"):
+            if float(a.get("score") or 0) >= 8 and a.get("target_skill"):
                 verified_skills_list.append(a.get("target_skill"))
 
         results = []
@@ -366,11 +368,15 @@ class SkillMatchingEngine:
             category = req.get("category", "concepts")
             req_id = req.get("requirement_id") or req.get("id") or f"req_{len(results) + 1}"
 
-            # 1. Assessment check
-            assessment_match = next(
-                (a for a in assessments if cls.is_skill_match(a.get("target_skill", ""), skill)),
-                None
-            )
+            # 1. Assessment check - select highest score among matching assessments
+            matching_assessments = [
+                a for a in assessments
+                if cls.is_skill_match(a.get("target_skill", ""), skill)
+            ]
+            assessment_match = max(
+                matching_assessments,
+                key=lambda x: float(x.get("score") or 0)
+            ) if matching_assessments else None
 
             # 2. Evidence matching (exact + alias + embedding similarity)
             matched_evidence = []
@@ -424,21 +430,39 @@ class SkillMatchingEngine:
                 else:
                     reason = f"Verified project evidence found in learner profile: {titles}."
                 action = "Ready to showcase in technical interview questions and portfolio."
+            # Time-Limit & Priority Calibration
+            user_override_priority = req.get("user_priority") or req.get("priority")
+            is_tight_timeline = days_remaining is not None and days_remaining <= 7
+            timeline_calibrated = False
+
+            if assessment_match and assessment_match.get("score", 0) >= 8:
+                status = "Demonstrated"
+                priority = "Low"
+                base_hours = 0.0
+                reason = f"Verified by controlled assessment score of {assessment_match['score']}/10."
+                action = "Ready to showcase in technical interviews."
+            elif verified_evidence:
+                status = "Demonstrated"
+                priority = "Low"
+                base_hours = 0.0
+                titles = ", ".join(f'"{e.get("title", "Project")}"' for e in verified_evidence[:2])
+                if highest_similarity >= 0.78:
+                    reason = f"Verified project evidence found via semantic match (similarity {highest_similarity}): {titles}."
+                else:
+                    reason = f"Verified project evidence found in learner profile: {titles}."
+                action = "Ready to showcase in technical interview questions and portfolio."
             elif assessment_match:
                 status = "Needs improvement"
-                priority = "High" if importance == "required" else "Medium"
                 base_hours = 5.0
                 reason = f"Assessment score of {assessment_match['score']}/10 indicates criteria need reinforcement."
                 action = "Review assessment feedback and resubmit revised implementation."
             elif needs_improvement_evidence:
                 status = "Needs improvement"
-                priority = "High" if importance == "required" else "Medium"
                 base_hours = 4.0
                 reason = "Existing evidence reviewed but flagged for missing test cases or incomplete implementation."
                 action = "Refactor project repository and update evidence documentation."
             elif any(cls.is_skill_match(s, skill) for s in self_reported_skills) or matched_evidence:
                 status = "Self-reported"
-                priority = "High" if importance == "required" else "Medium"
                 base_hours = 8.0
                 if matched_evidence:
                     reason = "Evidence linked, but pending repository verification or assessment confirmation."
@@ -447,10 +471,24 @@ class SkillMatchingEngine:
                 action = "Link a project repository featuring implementation code and unit tests."
             else:
                 status = "Unverified"
-                priority = "High" if importance == "required" else "Medium"
                 base_hours = 6.0
                 reason = "Required role capability with no supporting project evidence or recorded assessment."
                 action = "Complete practical task and rubric assessment."
+
+            # Calculate priority if not already Demonstrated
+            if status != "Demonstrated":
+                if user_override_priority in ["High", "Medium", "Low"]:
+                    priority = user_override_priority
+                elif is_tight_timeline:
+                    if importance == "required":
+                        priority = "High"
+                        action = f"Must-have requirement for your closing deadline ({days_remaining}d). Prioritize first."
+                    else:
+                        priority = "Low"
+                        timeline_calibrated = True
+                        action = f"Secondary requirement for your {days_remaining}d deadline. Defer until required deliverables are complete."
+                else:
+                    priority = "High" if importance == "required" else "Medium"
 
             # 4. Multi-factor dynamic remediation computation
             if status == "Demonstrated":
@@ -632,6 +670,137 @@ class SkillMatchingEngine:
             "assumptions": [
                 f"{days_remaining} days remaining before application closing date",
                 f"Assumes {study_hours_per_day} hours/day sustained study commitment",
+                f"Includes {application_prep_hours} hours for application review and CV tailoring"
+            ],
+            "suggested_scope": suggested_scope
+        }
+
+    @classmethod
+    def calculate_sprint_feasibility(
+        cls,
+        days_remaining: Optional[int],
+        study_hours_per_day: Optional[float],
+        unmet_items: List[Dict[str, Any]],
+        application_prep_hours: float = 4.0
+    ) -> Dict[str, Any]:
+        """
+        Calculates deadline feasibility with dynamic sprint scope adjustment:
+        - Evaluates available study capacity vs required effort.
+        - Under tight deadlines (<= 7 days) or when available capacity is constrained:
+          prioritizes critical High-priority must-haves, deferring secondary tasks
+          to Phase 2 so the sprint remains focused and achievable.
+        - Preserves intrinsic learning curves for individual skills while intelligently
+          scoping the study plan.
+        """
+        all_estimates = [float(item.get("effort_hours_estimate", 0.0)) for item in unmet_items]
+        full_plan_effort = round(sum(all_estimates) + application_prep_hours, 1)
+
+        if not days_remaining or days_remaining <= 0 or not study_hours_per_day or study_hours_per_day <= 0:
+            res = cls.calculate_feasibility(days_remaining, study_hours_per_day, all_estimates, application_prep_hours)
+            res.update({
+                "is_scoped_down": False,
+                "deferred_count": 0,
+                "deferred_hours": 0.0,
+                "full_plan_effort_hours": full_plan_effort,
+                "sprint_skills": [item.get("skill_name") for item in unmet_items],
+                "deferred_skills": []
+            })
+            return res
+
+        available_hours = round(days_remaining * study_hours_per_day, 1)
+
+        sprint_items = list(unmet_items)
+        deferred_items = []
+
+        # Scope reduction condition:
+        # Tight deadline (<= 7 days) OR available study time is significantly below total effort (<= 14 days)
+        if (days_remaining <= 7) or (days_remaining <= 14 and available_hours < full_plan_effort):
+            # 1. First priority: filter by Priority / Importance
+            high_priority_items = [
+                item for item in unmet_items
+                if item.get("priority") == "High" or item.get("importance") == "required"
+            ]
+            secondary_items = [
+                item for item in unmet_items
+                if item not in high_priority_items
+            ]
+
+            if secondary_items and len(high_priority_items) > 0:
+                sprint_items = high_priority_items
+                deferred_items = secondary_items
+            elif len(unmet_items) > 1 and available_hours < full_plan_effort:
+                # All items are high priority, but deadline cannot accommodate all
+                # Sort items by importance, then by gap status
+                def sort_key(x):
+                    status_order = {"Needs improvement": 1, "Self-reported": 2, "Unverified": 3}
+                    return (
+                        0 if x.get("importance") == "required" else 1,
+                        status_order.get(x.get("status"), 4),
+                        x.get("effort_hours_estimate", 0)
+                    )
+                sorted_items = sorted(unmet_items, key=sort_key)
+                keep_count = max(1, min(len(sorted_items) - 1, 2))
+                sprint_items = sorted_items[:keep_count]
+                deferred_items = sorted_items[keep_count:]
+
+        is_scoped_down = len(deferred_items) > 0
+        sprint_estimates = [float(item.get("effort_hours_estimate", 0.0)) for item in sprint_items]
+        sprint_plan_effort = round(sum(sprint_estimates) + application_prep_hours, 1)
+        deferred_hours = round(max(0.0, full_plan_effort - sprint_plan_effort), 1)
+
+        ratio = sprint_plan_effort / available_hours if available_hours > 0 else 999.0
+
+        if ratio <= 0.85:
+            band = "Likely feasible"
+            interpretation = (
+                f"Estimated sprint effort ({sprint_plan_effort} hrs) is comfortably below your available study capacity ({available_hours} hrs)."
+                if is_scoped_down else
+                f"Estimated prioritized effort ({sprint_plan_effort} hrs) is comfortably below available study capacity ({available_hours} hrs)."
+            )
+            suggested_scope = (
+                f"Focus on your {len(sprint_items)} sprint deliverables. Steady daily progress will leave ~{round(available_hours - sprint_plan_effort, 1)} hrs buffer."
+                if is_scoped_down else
+                "Focus on completing High-priority deliverables and maintaining steady study pace."
+            )
+        elif ratio <= 1.15:
+            band = "Tight / uncertain"
+            interpretation = (
+                f"Estimated sprint effort ({sprint_plan_effort} hrs) closely matches available capacity ({available_hours} hrs)."
+                if is_scoped_down else
+                f"Estimated effort ({sprint_plan_effort} hrs) is close to available time ({available_hours} hrs). Risks may arise if unexpected blockers occur."
+            )
+            suggested_scope = (
+                f"Sprint is tightly calibrated ({len(sprint_items)} core gaps). Maintain daily consistency to deliver on time."
+                if is_scoped_down else
+                "Reduce scope to the top 2 highest-value gaps; defer secondary tasks."
+            )
+        else:
+            band = "Not feasible as scoped"
+            interpretation = f"Estimated effort ({sprint_plan_effort} hrs) exceeds available time ({available_hours} hrs)."
+            suggested_scope = "Consider increasing daily study hours or extending target deadline to cover required deliverables."
+
+        if is_scoped_down:
+            suggested_scope = (
+                f"Urgent {days_remaining}-day deadline detected. Scope prioritized to {len(sprint_items)} core gap{'s' if len(sprint_items) > 1 else ''} "
+                f"({sprint_plan_effort}h sprint effort vs {full_plan_effort}h full curriculum). Deferred {len(deferred_items)} topic{'s' if len(deferred_items) > 1 else ''} saving ~{deferred_hours}h."
+            )
+
+        return {
+            "available_hours": available_hours,
+            "estimated_plan_effort_hours": sprint_plan_effort,
+            "full_plan_effort_hours": full_plan_effort,
+            "days_remaining": days_remaining,
+            "study_hours_per_day": study_hours_per_day,
+            "feasibility_band": band,
+            "interpretation": interpretation,
+            "is_scoped_down": is_scoped_down,
+            "deferred_count": len(deferred_items),
+            "deferred_hours": deferred_hours,
+            "sprint_skills": [item.get("skill_name") for item in sprint_items],
+            "deferred_skills": [item.get("skill_name") for item in deferred_items],
+            "assumptions": [
+                f"{days_remaining} days remaining before application closing date",
+                f"Assumes {study_hours_per_day} hours/day sustained study commitment ({round(study_hours_per_day * 7, 1)} hrs/week)",
                 f"Includes {application_prep_hours} hours for application review and CV tailoring"
             ],
             "suggested_scope": suggested_scope

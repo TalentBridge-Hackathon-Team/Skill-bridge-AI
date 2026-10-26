@@ -175,3 +175,44 @@ class SkillMatchingTests(TestCase):
         self.assertIn('results', response.data)
         self.assertIn('feasibility', response.data)
         self.assertEqual(len(response.data['results']), 4)
+
+    def test_inspect_evidence_endpoint(self):
+        # AI Evidence inspection API test
+        response = self.client.post(
+            '/api/skill-matching/inspect-evidence/',
+            data={
+                "repository_url": "https://github.com/psycopg/psycopg2",
+                "skill_name": "PostgreSQL",
+                "title": "PostgreSQL adapter implementation",
+                "description": "Python client library with connection pooling."
+            },
+            format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['success'])
+        self.assertEqual(response.data['skill_name'], 'PostgreSQL')
+        self.assertIn('verification_score', response.data)
+        self.assertIn('suggested_status', response.data)
+        self.assertIn('strengths', response.data)
+        self.assertIn('recommendations', response.data)
+
+    def test_remediation_advice_endpoint(self):
+        # AI Contextual Remediation Advisor API test
+        response = self.client.post(
+            '/api/skill-matching/remediation-advice/',
+            data={
+                "skill_name": "Docker",
+                "category": "devops",
+                "importance": "preferred",
+                "remediation_hours": 6.0
+            },
+            format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['success'])
+        self.assertEqual(response.data['skill_name'], 'Docker')
+        self.assertIn('interview_focus_questions', response.data)
+        self.assertIn('hands_on_project_exercise', response.data)
+        self.assertIn('recommended_deliverables', response.data)
+        self.assertGreater(len(response.data['interview_focus_questions']), 0)
+

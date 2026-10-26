@@ -33,14 +33,26 @@ class ProfileMeView(APIView):
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+import uuid
+
 class ProfileEvidenceView(APIView):
     """
     POST /api/profiles/me/evidence/ - Add new skill evidence
     """
     def post(self, request):
-        serializer = SkillEvidenceSerializer(data=request.data)
+        user_id = request.query_params.get("user_id") or request.data.get("user_id") or "usr_demo_001"
+        profile, _ = UserProfile.objects.get_or_create(
+            user_id=user_id,
+            defaults={"name": "Demo User", "target_role": "Junior Backend Developer"}
+        )
+
+        data = request.data.copy() if hasattr(request.data, "copy") else dict(request.data)
+        if not data.get("evidence_id"):
+            data["evidence_id"] = f"evi_{uuid.uuid4().hex[:10]}"
+
+        serializer = SkillEvidenceSerializer(data=data)
         if serializer.is_valid():
-            serializer.save()
+            serializer.save(profile=profile)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 

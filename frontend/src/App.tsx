@@ -61,7 +61,7 @@ function AppContent() {
         {/* Subtle Footer */}
         <footer className="border-t border-slate-200/80 dark:border-slate-800/80 bg-white/50 dark:bg-[#0e131f]/50 px-8 py-3 text-xs text-slate-400 dark:text-slate-500 flex items-center justify-between">
           <span>SkillBridge AI • AI Career OS</span>
-          <span>Blueprint 2.0 Hackathon Architecture • Light & Dark Themes</span>
+          <span>Evidence-based & deadline-aware planning</span>
         </footer>
       </div>
     </div>

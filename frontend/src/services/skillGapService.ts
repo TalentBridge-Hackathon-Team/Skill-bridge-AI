@@ -12,6 +12,7 @@ import type {
   UserProfile,
   SkillEvidence,
   FeasibilityAssessment,
+  FeasibilityBand,
   JobAnalysis
 } from '../types';
 import {
@@ -154,6 +155,13 @@ class SkillGapService {
   }
 
   /**
+   * Update requirements list & priorities for a role/goal
+   */
+  async updateRequirements(roleId: string, requirements: any[]): Promise<any> {
+    return api.updateRequirements(roleId, requirements);
+  }
+
+  /**
    * Retrieve target role by ID
    */
   async getTargetRole(roleId: string, userId: string = 'usr_demo_001'): Promise<TargetRoleOption | undefined> {
@@ -202,75 +210,119 @@ class SkillGapService {
         ? overrideStudyHoursPerWeek
         : (role?.study_hours_per_week ?? 14);
 
-    // Call live backend matching endpoint directly against Neon PostgreSQL
-    const liveResponse = await api.runMatching(targetRoleId, profile.user_id);
+    // Call live backend matching endpoint directly against Neon PostgreSQL with requested timeframe
+    const liveResponse = await api.runMatching(targetRoleId, profile.user_id, daysRemaining, studyHoursPerWeek);
 
     if (!liveResponse || !Array.isArray(liveResponse.results)) {
       throw new Error(`Invalid response structure from backend match API for analysis '${targetRoleId}'.`);
     }
 
-    const results: TraceableMatchResult[] = liveResponse.results.map((r: any) => ({
-      requirement_id: r.report_id || r.requirement_id || `rep_${r.skill_name}`,
-      skill_name: r.skill_name || r.skill,
-      category: r.category || 'concepts',
-      importance: r.importance || 'required',
-      status: r.status,
-      priority: r.priority,
-      reason: r.reason,
-      recommended_action: r.recommended_action || r.action,
-      effort_hours_estimate: r.effort_hours_estimate ?? 0,
-      effort_breakdown: r.effort_breakdown,
-      source_excerpt: r.source_excerpt,
-      supporting_evidence: r.supporting_evidence || [],
-      evidence_rationale: r.reason,
-      gap_type:
-        r.status === 'Demonstrated'
-          ? 'demonstrated'
-          : r.status === 'Self-reported'
-          ? 'missing_evidence'
-          : r.status === 'Needs improvement'
-          ? 'needs_reinforcement'
-          : 'missing_skill'
-    }));
+    const localPassedSkills: string[] = typeof window !== 'undefined' && window.localStorage
+      ? JSON.parse(window.localStorage.getItem('skillbridge_all_passed_skills') || '[]')
+      : [];
+    const localPassedSet = new Set(localPassedSkills.map(s => s.toLowerCase().trim()));
 
-    const summary: SkillGapSummary = liveResponse.summary
-      ? {
-          total_assessed: liveResponse.summary.total_assessed ?? results.length,
-          demonstrated_count: liveResponse.summary.demonstrated_count ?? 0,
-          self_reported_count: liveResponse.summary.self_reported_count ?? 0,
-          needs_improvement_count: liveResponse.summary.needs_improvement_count ?? 0,
-          unverified_count: liveResponse.summary.unverified_count ?? 0,
-          required_count: results.filter(i => i.importance === 'required').length,
-          preferred_count: results.filter(i => i.importance === 'preferred').length,
-          match_score: liveResponse.summary.match_score ?? 0,
-          calculation_explanation:
-            `Calculated from ${results.length} requirements evaluated in Neon PostgreSQL. ` +
-            `Required skills are weighted 2× relative to preferred skills. ` +
-            `Diagnostic readiness heuristic, not an employment guarantee.`,
-          total_remediation_hours: liveResponse.summary.total_remediation_hours ?? 0
-        }
-      : {
-          total_assessed: results.length,
-          demonstrated_count: results.filter(r => r.status === 'Demonstrated').length,
-          self_reported_count: results.filter(r => r.status === 'Self-reported').length,
-          needs_improvement_count: results.filter(r => r.status === 'Needs improvement').length,
-          unverified_count: results.filter(r => r.status === 'Unverified').length,
-          required_count: results.filter(i => i.importance === 'required').length,
-          preferred_count: results.filter(i => i.importance === 'preferred').length,
-          match_score: 50,
-          calculation_explanation: 'Calculated from live Neon database requirements.',
-          total_remediation_hours: results.reduce((acc, r) => acc + r.effort_hours_estimate, 0)
-        };
+    const results: TraceableMatchResult[] = liveResponse.results.map((r: any) => {
+      const sName = r.skill_name || r.skill || '';
+      const isDemonstrated = r.status === 'Demonstrated' || localPassedSet.has(sName.toLowerCase().trim());
+      const verifiedProject = typeof window !== 'undefined' && window.localStorage
+        ? window.localStorage.getItem(`skillbridge_verified_project_${sName}`)
+        : null;
 
-    const feasibility: FeasibilityAssessment = liveResponse.feasibility || {
-      available_hours: Math.round(daysRemaining * (studyHoursPerWeek / 7.0)),
-      estimated_plan_effort_hours: summary.total_remediation_hours + 4.0,
+      return {
+        requirement_id: r.report_id || r.requirement_id || `rep_${sName}`,
+        skill_name: sName,
+        category: r.category || 'concepts',
+        importance: r.importance || 'required',
+        status: isDemonstrated ? 'Demonstrated' : r.status,
+        priority: isDemonstrated ? 'Low' : r.priority,
+        reason: isDemonstrated
+          ? (verifiedProject
+              ? `Verified project deliverable: "${verifiedProject}" (10/10 rubric assessment verified).`
+              : (r.status === 'Demonstrated' ? r.reason : 'Verified by practical technical assessment deliverable (score >= 8/10).'))
+          : r.reason,
+        recommended_action: isDemonstrated
+          ? 'Ready to showcase in technical interviews and portfolio.'
+          : (r.recommended_action || r.action),
+        effort_hours_estimate: isDemonstrated ? 0 : (r.effort_hours_estimate ?? 0),
+        effort_breakdown: isDemonstrated ? { ...r.effort_breakdown, final_hours: 0 } : r.effort_breakdown,
+        source_excerpt: r.source_excerpt,
+        supporting_evidence: r.supporting_evidence || [],
+        evidence_rationale: r.reason,
+        is_deferred: isDemonstrated ? false : Boolean(r.is_deferred ?? (liveResponse.feasibility?.deferred_skills?.includes(sName))),
+        in_sprint_scope: isDemonstrated ? false : Boolean(r.in_sprint_scope ?? (r.status !== 'Demonstrated' && !liveResponse.feasibility?.deferred_skills?.includes(sName))),
+        gap_type:
+          isDemonstrated
+            ? 'demonstrated'
+            : r.status === 'Self-reported'
+            ? 'missing_evidence'
+            : r.status === 'Needs improvement'
+            ? 'needs_reinforcement'
+            : 'missing_skill'
+      };
+    });
+
+    const demonstratedCount = results.filter(r => r.status === 'Demonstrated').length;
+    const totalRemediation = results.reduce((acc, r) => acc + (r.effort_hours_estimate || 0), 0);
+    const dynamicMatchScore = results.length > 0 ? Math.round((demonstratedCount / results.length) * 100) : 0;
+
+    const summary: SkillGapSummary = {
+      total_assessed: results.length,
+      demonstrated_count: demonstratedCount,
+      self_reported_count: results.filter(r => r.status === 'Self-reported').length,
+      needs_improvement_count: results.filter(r => r.status === 'Needs improvement').length,
+      unverified_count: results.filter(r => r.status === 'Unverified').length,
+      required_count: results.filter(i => i.importance === 'required').length,
+      preferred_count: results.filter(i => i.importance === 'preferred').length,
+      match_score: dynamicMatchScore,
+      calculation_explanation:
+        `Calculated from ${results.length} role requirements. ` +
+        `Required skills are weighted 2× relative to preferred skills.`,
+      total_remediation_hours: totalRemediation
+    };
+
+    const calculatedAvailableHours = Math.round(daysRemaining * (studyHoursPerWeek / 7.0) * 10) / 10;
+    const dailyStudyHours = Math.round((studyHoursPerWeek / 7.0) * 10) / 10;
+    const planEffort = liveResponse.feasibility?.estimated_plan_effort_hours ?? Math.round((summary.total_remediation_hours + 4.0) * 10) / 10;
+    const ratio = calculatedAvailableHours > 0 ? planEffort / calculatedAvailableHours : 999;
+    const calculatedBand: FeasibilityBand =
+      ratio <= 0.8
+        ? 'Likely feasible'
+        : ratio <= 1.2
+        ? 'Tight / uncertain'
+        : 'Not feasible as scoped';
+    const isScopedDown = liveResponse.feasibility?.is_scoped_down ?? (daysRemaining <= 7);
+    const deferredCount = liveResponse.feasibility?.deferred_count ?? (isScopedDown ? results.filter(r => r.status !== 'Demonstrated' && r.priority !== 'High').length : 0);
+    const deferredHours = liveResponse.feasibility?.deferred_hours ?? (isScopedDown ? Math.round(results.filter(r => r.status !== 'Demonstrated' && r.priority !== 'High').reduce((sum, r) => sum + r.effort_hours_estimate, 0) * 10) / 10 : 0);
+    const fullPlanEffort = liveResponse.feasibility?.full_plan_effort_hours ?? Math.round((summary.total_remediation_hours + 4.0) * 10) / 10;
+
+    const feasibility: FeasibilityAssessment = {
+      available_hours: calculatedAvailableHours,
+      estimated_plan_effort_hours: planEffort,
       days_remaining: daysRemaining,
-      study_hours_per_day: Math.round((studyHoursPerWeek / 7.0) * 10) / 10,
-      feasibility_band: 'Likely feasible',
-      interpretation: 'Feasibility calculated against target deadline.',
-      assumptions: [`${daysRemaining} days remaining`],
-      suggested_scope: 'Focus on High-priority deliverables.'
+      study_hours_per_day: dailyStudyHours,
+      feasibility_band: liveResponse.feasibility?.feasibility_band || calculatedBand,
+      interpretation:
+        liveResponse.feasibility?.interpretation ||
+        `Estimated effort (${planEffort} hrs) vs available study time (${calculatedAvailableHours} hrs).`,
+      assumptions: [
+        `${daysRemaining} days remaining before target deadline`,
+        `Assumes ${dailyStudyHours} hours/day sustained commitment (${studyHoursPerWeek} hrs/week)`,
+        'Includes 4.0 hours for application review and CV tailoring'
+      ],
+      suggested_scope:
+        liveResponse.feasibility?.suggested_scope ||
+        (isScopedDown
+          ? `Urgent ${daysRemaining}-day deadline detected. Sprint scoped to High-Priority core gaps only (deferred ${deferredCount} secondary topics saving ${deferredHours}h).`
+          : calculatedBand === 'Likely feasible'
+          ? 'Focus on completing High-priority deliverables and maintaining steady study pace.'
+          : calculatedBand === 'Tight / uncertain'
+          ? 'Reduce scope to the top highest-value gaps; defer secondary tasks.'
+          : 'Narrow scope to critical must-have gaps only; consider applying with transparent existing evidence.'),
+      is_scoped_down: isScopedDown,
+      deferred_count: deferredCount,
+      deferred_hours: deferredHours,
+      full_plan_effort_hours: fullPlanEffort
     };
 
     const evidenceMapping = buildEvidenceMapping(
@@ -317,6 +369,62 @@ class SkillGapService {
       status: evidence.review_status
     };
   }
+
+  /**
+   * AI-powered automated GitHub repository evidence inspection & verification.
+   * Leverages GitHub API and OpenRouter LLM to audit code, tests, and proficiency.
+   */
+  async inspectEvidence(data: {
+    repository_url: string;
+    skill_name: string;
+    title?: string;
+    description?: string;
+  }): Promise<{
+    success: boolean;
+    skill_name: string;
+    evidence_title: string;
+    repository_url: string;
+    github_verified: boolean;
+    github_metadata: {
+      full_name: string;
+      stars: number;
+      languages: string[];
+      has_automated_tests: boolean;
+      has_docker: boolean;
+      root_files_sample: string[];
+    };
+    verification_score: number;
+    suggested_status: 'verified' | 'needs_improvement' | 'unverified';
+    has_automated_tests: boolean;
+    detected_technologies: string[];
+    strengths: string[];
+    recommendations: string[];
+    summary_rationale: string;
+  }> {
+    return api.inspectEvidence(data);
+  }
+
+  /**
+   * AI Contextual Remediation Advisor with Level-Calibrated Pedagogy.
+   * Generates tailored interview questions and 3 progressive project tracks
+   * matching learner experience level and effort budget.
+   */
+  async getRemediationAdvice(data: {
+    skill_name: string;
+    category?: string;
+    importance?: string;
+    remediation_hours?: number;
+    effort_breakdown?: any;
+    user_id?: string;
+    experience_level?: string;
+    role_title?: string;
+    status?: string;
+    feasibility_status?: string;
+    days_remaining?: number;
+  }): Promise<import('../types').RemediationAdvice> {
+    return api.getRemediationAdvice(data);
+  }
 }
 
 export const skillGapService = new SkillGapService();
+

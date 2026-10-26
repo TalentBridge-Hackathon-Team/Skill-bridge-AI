@@ -50,6 +50,10 @@ export interface TraceableMatchResult {
   evidence_rationale: string;
   /** Distinction: whether learner claims knowledge but lacks evidence vs has no claim/evidence */
   gap_type: 'demonstrated' | 'missing_evidence' | 'needs_reinforcement' | 'missing_skill';
+  /** Whether this requirement is deferred to Phase 2 under an urgent sprint */
+  is_deferred?: boolean;
+  /** Whether this requirement is actively included in the current sprint */
+  in_sprint_scope?: boolean;
 }
 
 export interface SkillGapSummary {
@@ -524,7 +528,6 @@ export function matchRequirementsToProfile(
       const adjacentMatch = findAdjacentTransferableSkill(skillName, verifiedSkillsList, category, verifiedSkillCategories);
       const adjacentDiscount = adjacentMatch ? adjacentMatch.discount : 0.0;
       const adjacentSkillName = adjacentMatch ? adjacentMatch.adjacentSkill : null;
-      const adjacentRationale = adjacentMatch?.rationale || 'Adjacent skill';
 
       const assessmentScale = assessmentMatch ? calculateAssessmentScaling(assessmentMatch.score) : 1.0;
 
@@ -671,28 +674,65 @@ export function calculateFeasibility(
   matchResults: TraceableMatchResult[],
   applicationPrepHours: number = 4.0
 ): FeasibilityAssessment {
-  const taskEstimates = matchResults
-    .filter(r => r.status !== 'Demonstrated')
-    .map(r => r.effort_hours_estimate);
-
-  const totalEffort = taskEstimates.reduce((a, b) => a + b, 0) + applicationPrepHours;
+  const unmetItems = matchResults.filter(r => r.status !== 'Demonstrated');
+  const allEstimates = unmetItems.map(r => r.effort_hours_estimate);
+  const fullPlanEffort = Math.round((allEstimates.reduce((a, b) => a + b, 0) + applicationPrepHours) * 10) / 10;
 
   if (!daysRemaining || daysRemaining <= 0 || !studyHoursPerDay || studyHoursPerDay <= 0) {
     return {
       available_hours: 0,
-      estimated_plan_effort_hours: Math.round(totalEffort * 10) / 10,
+      estimated_plan_effort_hours: fullPlanEffort,
+      full_plan_effort_hours: fullPlanEffort,
       days_remaining: daysRemaining || 0,
       study_hours_per_day: studyHoursPerDay || 0,
       feasibility_band: 'Insufficient information',
       interpretation: 'Missing deadline date or daily study capacity prevents a meaningful feasibility comparison.',
       assumptions: ['Please define your target deadline and daily study commitment.'],
-      suggested_scope: 'Define target deadline and study hours to calculate feasibility.'
+      suggested_scope: 'Define target deadline and study hours to calculate feasibility.',
+      is_scoped_down: false,
+      deferred_count: 0,
+      deferred_hours: 0,
+      sprint_skills: unmetItems.map(r => r.skill_name),
+      deferred_skills: []
     };
   }
 
   const availableHours = Math.round(daysRemaining * studyHoursPerDay * 10) / 10;
-  const planEffort = Math.round(totalEffort * 10) / 10;
-  const ratio = availableHours > 0 ? planEffort / availableHours : 999.0;
+
+  let sprintItems = [...unmetItems];
+  let deferredItems: TraceableMatchResult[] = [];
+
+  // Intelligent Sprint Scoping under tight deadlines (<= 7 days) or constrained capacity (<= 14 days)
+  if (daysRemaining <= 7 || (daysRemaining <= 14 && availableHours < fullPlanEffort)) {
+    const highPriorityItems = unmetItems.filter(
+      r => r.priority === 'High' || r.importance === 'required'
+    );
+    const secondaryItems = unmetItems.filter(r => !highPriorityItems.includes(r));
+
+    if (secondaryItems.length > 0 && highPriorityItems.length > 0) {
+      sprintItems = highPriorityItems;
+      deferredItems = secondaryItems;
+    } else if (unmetItems.length > 1 && availableHours < fullPlanEffort) {
+      // All items are high priority: keep top critical gaps that fit nearest to available sprint capacity
+      const sorted = [...unmetItems].sort((a, b) => {
+        const statusOrder: Record<string, number> = { 'Needs improvement': 1, 'Self-reported': 2, 'Unverified': 3 };
+        const orderA = statusOrder[a.status] || 4;
+        const orderB = statusOrder[b.status] || 4;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.effort_hours_estimate - b.effort_hours_estimate;
+      });
+      const keepCount = Math.max(1, Math.min(sorted.length - 1, 2));
+      sprintItems = sorted.slice(0, keepCount);
+      deferredItems = sorted.slice(keepCount);
+    }
+  }
+
+  const isScopedDown = deferredItems.length > 0;
+  const sprintEstimates = sprintItems.map(r => r.effort_hours_estimate);
+  const sprintPlanEffort = Math.round((sprintEstimates.reduce((a, b) => a + b, 0) + applicationPrepHours) * 10) / 10;
+  const deferredHours = Math.round(Math.max(0, fullPlanEffort - sprintPlanEffort) * 10) / 10;
+
+  const ratio = availableHours > 0 ? sprintPlanEffort / availableHours : 999.0;
 
   let band: FeasibilityBand = 'Likely feasible';
   let interpretation = '';
@@ -700,25 +740,43 @@ export function calculateFeasibility(
 
   if (ratio <= 0.85) {
     band = 'Likely feasible';
-    interpretation = `Estimated prioritized effort (${planEffort} hrs) is comfortably below your available study capacity (${availableHours} hrs).`;
-    suggestedScope = 'Focus on high-priority gaps and maintaining a consistent study cadence.';
+    interpretation = isScopedDown
+      ? `Estimated sprint effort (${sprintPlanEffort} hrs) is comfortably below your available study capacity (${availableHours} hrs).`
+      : `Estimated prioritized effort (${sprintPlanEffort} hrs) is comfortably below your available study capacity (${availableHours} hrs).`;
+    suggestedScope = isScopedDown
+      ? `Focus on your ${sprintItems.length} sprint deliverables. Steady daily progress will leave ~${Math.round((availableHours - sprintPlanEffort) * 10) / 10} hrs buffer.`
+      : 'Focus on high-priority gaps and maintaining a consistent study cadence.';
   } else if (ratio <= 1.15) {
     band = 'Tight / uncertain';
-    interpretation = `Estimated effort (${planEffort} hrs) is close to available time (${availableHours} hrs). Buffer is minimal if blockers arise.`;
-    suggestedScope = 'Focus on the top 2 highest-value requirements first; defer secondary preferred skills.';
+    interpretation = isScopedDown
+      ? `Estimated sprint effort (${sprintPlanEffort} hrs) closely matches available capacity (${availableHours} hrs).`
+      : `Estimated effort (${sprintPlanEffort} hrs) is close to available time (${availableHours} hrs). Buffer is minimal if blockers arise.`;
+    suggestedScope = isScopedDown
+      ? `Sprint is tightly calibrated (${sprintItems.length} core gaps). Maintain daily consistency to deliver on time.`
+      : 'Focus on the top 2 highest-value requirements first; defer secondary preferred skills.';
   } else {
     band = 'Not feasible as scoped';
-    interpretation = `Estimated effort (${planEffort} hrs) exceeds available time (${availableHours} hrs) before the target deadline.`;
-    suggestedScope = 'Narrow scope to mandatory must-have gaps only; consider applying with transparent existing evidence.';
+    interpretation = `Estimated effort (${sprintPlanEffort} hrs) exceeds available time (${availableHours} hrs) before the target deadline.`;
+    suggestedScope = 'Consider increasing daily study hours or extending target deadline to cover required deliverables.';
+  }
+
+  if (isScopedDown) {
+    suggestedScope = `Urgent ${daysRemaining}-day deadline detected. Scope prioritized to ${sprintItems.length} core gap${sprintItems.length > 1 ? 's' : ''} (${sprintPlanEffort}h sprint effort vs ${fullPlanEffort}h full curriculum). Deferred ${deferredItems.length} topic${deferredItems.length > 1 ? 's' : ''} saving ~${deferredHours}h.`;
   }
 
   return {
     available_hours: availableHours,
-    estimated_plan_effort_hours: planEffort,
+    estimated_plan_effort_hours: sprintPlanEffort,
+    full_plan_effort_hours: fullPlanEffort,
     days_remaining: daysRemaining,
     study_hours_per_day: studyHoursPerDay,
     feasibility_band: band,
     interpretation,
+    is_scoped_down: isScopedDown,
+    deferred_count: deferredItems.length,
+    deferred_hours: deferredHours,
+    sprint_skills: sprintItems.map(r => r.skill_name),
+    deferred_skills: deferredItems.map(r => r.skill_name),
     assumptions: [
       `${daysRemaining} days remaining before application closing date`,
       `Assumes ${studyHoursPerDay} hours/day sustained study capacity (${Math.round(studyHoursPerDay * 7)} hrs/week)`,

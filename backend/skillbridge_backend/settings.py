@@ -138,10 +138,23 @@ AWS_SQS_RESUME_QUEUE_URL = os.getenv('AWS_SQS_RESUME_QUEUE_URL', 'http://localho
 # OpenRouter LLM & Embeddings Configuration
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 OPENROUTER_BASE_URL = os.getenv('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1')
-OPENROUTER_TEXT_MODEL = os.getenv('OPENROUTER_TEXT_MODEL', 'google/gemma-4-26b-a4b-it:free')
+OPENROUTER_TEXT_MODEL = os.getenv('OPENROUTER_TEXT_MODEL', 'cohere/north-mini-code:free')
 OPENROUTER_EMBED_MODEL = os.getenv('OPENROUTER_EMBED_MODEL', 'nvidia/nemotron-3-embed-1b:free')
-OPENROUTER_SITE_URL = os.getenv('OPENROUTER_SITE_URL', 'http://localhost:4000')
+OPENROUTER_INSPECTION_MODEL = os.getenv('OPENROUTER_INSPECTION_MODEL', 'poolside/laguna-s-2.1:free')
+OPENROUTER_INSPECTION_FALLBACK_MODELS = os.getenv(
+    'OPENROUTER_INSPECTION_FALLBACK_MODELS',
+    'cohere/north-mini-code:free,recursive/flint-v1.0:free,nvidia/nemotron-3.5-lightning:free'
+)
+OPENROUTER_SITE_URL = os.getenv('OPENROUTER_SITE_URL', 'http://localhost:8000')
 OPENROUTER_SITE_NAME = os.getenv('OPENROUTER_SITE_NAME', 'skillbridge')
+
+# GitHub API Integration for Member 3 Evidence Inspection
+GITHUB_TOKEN = os.getenv('GITHUB_TOKEN', '')
+
+# Google Gemini API Integration
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3-flash-preview')
+
 
 
 

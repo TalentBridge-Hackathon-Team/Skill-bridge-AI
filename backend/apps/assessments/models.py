@@ -36,3 +36,26 @@ class AssessmentSubmission(models.Model):
 
     def __str__(self):
         return f"Submission {self.submission_id} - Score: {self.score}/{self.max_score} ({self.status})"
+
+class MicroLessonProgress(models.Model):
+    """
+    Dedicated database record for tracking a learner's personalized AI micro-lesson progress,
+    unlocked hint levels, interactive Socratic chats, struggle diagnosis, learning style, and experience level.
+    """
+    user_id = models.CharField(max_length=100, default="usr_demo_001", db_index=True)
+    skill_name = models.CharField(max_length=150, db_index=True)
+    unlocked_hint_level = models.IntegerField(default=1)  # Level 1, 2, or 3
+    chat_history = models.JSONField(default=list)  # list of {id, sender, text, socraticQuestion, conceptAnimation, timestamp}
+    learning_preference = models.CharField(max_length=50, default="visual")
+    experience_level = models.CharField(max_length=50, default="intermediate")
+    struggle_topics = models.JSONField(default=list)  # e.g. ["boundary_guards", "concurrency"]
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("user_id", "skill_name")
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return f"MicroLessonProgress: {self.user_id} - {self.skill_name} (Level {self.unlocked_hint_level})"
+
