@@ -6,6 +6,7 @@ import {
   CheckSquare,
   Layers,
   Sparkles,
+  LogOut,
   type LucideIcon
 } from 'lucide-react';
 
@@ -21,6 +22,7 @@ interface SidebarProps {
   setActiveTab: (tab: string) => void;
   userName?: string;
   userRole?: string;
+  onLogout?: () => void;
 }
 
 export const navItems: NavItem[] = [
@@ -36,7 +38,8 @@ export default function Sidebar({
   activeTab,
   setActiveTab,
   userName = 'Student',
-  userRole = 'Pro plan'
+  userRole = 'Pro plan',
+  onLogout,
 }: SidebarProps) {
   return (
     <aside className="w-60 min-h-screen bg-white dark:bg-[#0e131f] border-r border-slate-200/80 dark:border-slate-800/80 flex flex-col justify-between p-4 select-none shrink-0 transition-colors duration-200">
@@ -81,7 +84,7 @@ export default function Sidebar({
       </div>
 
       {/* User Profile Footer matching screenshot */}
-      <div className="pt-4 border-t border-slate-100 dark:border-slate-800/60 px-1">
+      <div className="pt-4 border-t border-slate-100 dark:border-slate-800/60 px-1 space-y-2">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center text-xs font-bold shadow-xs">
             {userName.charAt(0).toUpperCase()}
@@ -95,6 +98,15 @@ export default function Sidebar({
             </div>
           </div>
         </div>
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            Sign Out
+          </button>
+        )}
       </div>
     </aside>
   );

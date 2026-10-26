@@ -3,7 +3,7 @@ Django settings for SkillBridge AI backend.
 Adheres to Product Blueprint:
 - Modular feature-based apps (Profiles, Job Analysis, Skill Matching, Assessments, Roadmap)
 - CORS enabled for React frontend
-- Environment-driven configuration for AWS Bedrock and Secrets
+- Environment-driven configuration for AWS and OpenRouter secrets
 """
 
 import os
@@ -39,6 +39,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
 
     'apps.profiles',
@@ -46,6 +48,7 @@ INSTALLED_APPS = [
     'apps.skill_matching',
     'apps.assessments',
     'apps.roadmap',
+    'apps.authentication',
 ]
 
 MIDDLEWARE = [
@@ -117,12 +120,33 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer',
     ]
+}
+
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    # Access token valid for 60 minutes — short-lived for security
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    # Refresh token valid for 7 days — user stays logged in without re-entering password
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    # Issue a new refresh token on every refresh call (sliding window)
+    'ROTATE_REFRESH_TOKENS': True,
+    # Blacklist old refresh tokens after rotation (requires simplejwt blacklist app)
+    'BLACKLIST_AFTER_ROTATION': True,
+    # Token type claim name in the JWT payload
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    # Include user_id in token so views can look up the user without a DB call
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
 }
 
 CORS_ALLOW_ALL_ORIGINS = True

@@ -13,6 +13,8 @@ class UserProfileTests(TestCase):
         self.assertEqual(response.data['user_id'], 'test_user_01')
 
     def test_update_profile(self):
+        # Ensure profile exists first (GET auto-creates)
+        self.client.get('/api/profiles/me/?user_id=test_user_01')
         payload = {
             "user_id": "test_user_01",
             "name": "Alex Candidate",
@@ -37,3 +39,69 @@ class UserProfileTests(TestCase):
         if response.data.get('sqs'):
             self.assertTrue(response.data['sqs']['success'])
 
+
+
+class ProfileCreateTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_create_profile_success(self):
+        payload = {
+            "user_id": "new_user_create",
+            "name": "New User",
+            "target_role": "Data Engineer",
+            "skills": ["Python", "SQL"],
+            "study_capacity_hours_per_week": 20,
+        }
+        response = self.client.post('/api/profiles/', payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['user_id'], 'new_user_create')
+        self.assertEqual(response.data['study_capacity_hours_per_week'], 20)
+
+    def test_create_profile_duplicate_returns_409(self):
+        UserProfile.objects.create(user_id="existing_user", name="Existing", target_role="Dev", skills=[])
+        payload = {"user_id": "existing_user", "name": "Duplicate Attempt", "target_role": "Dev"}
+        response = self.client.post('/api/profiles/', payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+
+    def test_create_profile_missing_name_returns_400(self):
+        payload = {"user_id": "bad_user", "name": "", "target_role": "Dev"}
+        response = self.client.post('/api/profiles/', payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_ownership_check_blocks_cross_user_put(self):
+        # Create profile for user_a
+        self.client.get('/api/profiles/me/?user_id=user_a')
+        # Try to update user_a's profile while claiming to be user_b
+        payload = {"user_id": "user_a", "name": "Hacker"}
+        response = self.client.put('/api/profiles/me/?user_id=user_b', payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_put_nonexistent_profile_returns_404(self):
+        payload = {"user_id": "ghost_user", "name": "Ghost"}
+        response = self.client.put('/api/profiles/me/?user_id=ghost_user', payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_profile_stores_goal_context_fields(self):
+        payload = {
+            "user_id": "goal_user",
+            "name": "Goal Setter",
+            "target_role": "ML Engineer",
+            "skills": ["Python"],
+            "professional_background": "3 years in data analytics",
+            "target_date": "2027-06-01",
+            "study_capacity_hours_per_week": 15,
+            "project_descriptions": [
+                {
+                    "title": "Sales Predictor",
+                    "description": "ML model for forecasting",
+                    "link": "https://github.com/test/sales",
+                    "skills_demonstrated": ["scikit-learn", "pandas"]
+                }
+            ]
+        }
+        response = self.client.post('/api/profiles/', payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['professional_background'], "3 years in data analytics")
+        self.assertEqual(response.data['target_date'], "2027-06-01")
+        self.assertEqual(len(response.data['project_descriptions']), 1)

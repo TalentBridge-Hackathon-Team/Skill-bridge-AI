@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
 import { Sparkles, ArrowRight, Image as ImageIcon, Calendar, Clock, Compass, Briefcase, Plus, Trash2, CheckCircle2 } from 'lucide-react';
 import { api } from '../services/api';
-import type { Requirement, ProductMode } from '../types';
+import type { Requirement, ProductMode, SkillProfileSummary } from '../types';
 
 interface JobAnalysisPageProps {
   setActiveTab: (tab: string) => void;
@@ -18,12 +18,25 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
   const [studyHoursPerWeek, setStudyHoursPerWeek] = useState<number>(14);
 
   // Mode B fields (Goal-Based Career/Skill)
-  const [goalText, setGoalText] = useState<string>('Junior Backend Developer / Backend Internship');
+  const [goalText, setGoalText] = useState<string>('');
   const [goalType, setGoalType] = useState<'career_role' | 'skill_goal'>('career_role');
+  const [availableProfiles, setAvailableProfiles] = useState<SkillProfileSummary[]>([]);
+
+  // Load supported profiles once on mount
+  useEffect(() => {
+    api.getSkillProfiles()
+      .then(setAvailableProfiles)
+      .catch(() => {/* non-critical — user can still type freely */});
+  }, []);
 
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
+  const [isConfirming, setIsConfirming] = useState<boolean>(false);
+  const [activeAnalysisId, setActiveAnalysisId] = useState<string | null>(null);
+  const [extractionWarning, setExtractionWarning] = useState<string | null>(null);
+  const [extractionError, setExtractionError] = useState<string | null>(null);
 
   // Editable requirements (human review - Section 6, F5)
+  // Default sample requirements are shown until the user runs a real extraction.
   const [extractedRequirements, setExtractedRequirements] = useState<Requirement[]>([
     { id: 'req_1', skill_name: 'Python', category: 'language', importance: 'required', source_excerpt: 'Proficiency in Python and familiarity with web frameworks' },
     { id: 'req_2', skill_name: 'Django REST Framework', category: 'framework', importance: 'required', source_excerpt: 'Design, build, and maintain robust RESTful APIs in Python' },
@@ -40,6 +53,9 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
     if (mode === 'goal_based' && !goalText) return;
 
     setIsExtracting(true);
+    setExtractionError(null);
+    setExtractionWarning(null);
+
     try {
       if (mode === 'job_specific') {
         const formData = new FormData();
@@ -49,26 +65,96 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
         formData.append('study_hours_per_week', String(studyHoursPerWeek));
         formData.append('user_id', 'usr_demo_001');
 
-        await api.submitJobAnalysis(formData);
+        const result = await api.submitJobAnalysis(formData);
+
+        // Wire the API response into the editable requirements list
+        if (result.requirements && result.requirements.length > 0) {
+          setExtractedRequirements(
+            result.requirements.map((r) => ({
+              id: r.requirement_id || r.id || `req_${Date.now()}`,
+              skill_name: r.skill_name,
+              category: r.category,
+              importance: r.importance,
+              source_excerpt: r.source_excerpt,
+              user_confirmed: true,
+            }))
+          );
+        }
+        // Store the analysis_id so Confirm can call PATCH /requirements/
+        if (result.analysis_id) {
+          setActiveAnalysisId(result.analysis_id);
+        }
       } else {
-        await api.submitGoal({
+        // Mode B: goal-based — response includes requirements from the matched profile
+        const result = await api.submitGoal({
           user_id: 'usr_demo_001',
           goal_type: goalType,
           goal_text: goalText,
           days_remaining: daysRemaining,
           study_hours_per_week: studyHoursPerWeek,
         });
+
+        // The goal response contains requirements from the matched profile
+        const goalResult = result as unknown as {
+          goal: { goal_id: string };
+          requirements: Array<{ skill_name: string; category: string; importance: string; source_excerpt: string }>;
+          warning?: string;
+        };
+
+        if (goalResult.requirements && goalResult.requirements.length > 0) {
+          setExtractedRequirements(
+            goalResult.requirements.map((r, i) => ({
+              id: `req_goal_${i}_${Date.now()}`,
+              skill_name: r.skill_name,
+              category: r.category,
+              importance: r.importance as 'required' | 'preferred',
+              source_excerpt: r.source_excerpt,
+              user_confirmed: true,
+            }))
+          );
+        }
+        if (goalResult.warning) {
+          setExtractionWarning(goalResult.warning);
+        }
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Analysis error (falling back to prepared sample schema):", err);
+      const message = err instanceof Error ? err.message : 'Could not reach the server.';
+      setExtractionError(`Extraction failed: ${message}. Showing default requirements.`);
     } finally {
       setIsExtracting(false);
     }
   };
 
+  // Confirm button: sends the edited requirements list back to the backend
+  const handleConfirmRequirements = async () => {
+    if (!activeAnalysisId) return; // Goal mode or not yet extracted — skip PATCH
+    setIsConfirming(true);
+    try {
+      await api.updateRequirements(
+        activeAnalysisId,
+        extractedRequirements.map((r) => ({
+          requirement_id: r.id,
+          skill_name: r.skill_name,
+          category: r.category,
+          importance: r.importance,
+          source_excerpt: r.source_excerpt,
+        }))
+      );
+      // Navigate to the skill gap page
+      setActiveTab('gaps');
+    } catch (err) {
+      console.error("Failed to confirm requirements:", err);
+      // Still navigate — the user's local list is valid even if the PATCH failed
+      setActiveTab('gaps');
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
   const removeRequirement = (id?: string) => {
     if (!id) return;
-    setExtractedRequirements(extractedRequirements.filter(r => r.id !== id));
+    setExtractedRequirements(extractedRequirements.filter(r => r.id !== id && r.requirement_id !== id));
   };
 
   const addCustomRequirement = () => {
@@ -264,19 +350,44 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
 
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Describe your goal or choose the supported hackathon profile
+                    Describe your goal
                   </label>
                   <input
                     type="text"
                     value={goalText}
                     onChange={(e) => setGoalText(e.target.value)}
                     className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"
-                    placeholder="E.g., Prepare for a Junior Backend Developer role"
+                    placeholder="E.g., I want to become a React frontend developer"
                   />
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Mapped to the supported MVP role profile (Python, Django REST, PostgreSQL, API Testing).
+                    The system maps your goal to the closest matching role profile automatically.
                   </p>
                 </div>
+
+                {/* Quick-pick profile buttons */}
+                {availableProfiles.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                      Or pick a role directly
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {availableProfiles.map((p) => (
+                        <button
+                          key={p.profile_id}
+                          type="button"
+                          onClick={() => setGoalText(`I want to become a ${p.role_title}`)}
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${
+                            goalText.includes(p.role_title)
+                              ? 'bg-cyan-600 border-cyan-500 text-white'
+                              : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-cyan-500 hover:text-cyan-300'
+                          }`}
+                        >
+                          {p.role_title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Study Pace */}
                 <div className="p-3.5 rounded-lg border border-cyan-900/40 bg-cyan-950/20 flex items-center justify-between">
@@ -312,7 +423,7 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
           >
             <Sparkles className="w-4 h-4" />
             {isExtracting
-              ? 'Analyzing with Bedrock & Rule Engine...'
+              ? 'Analyzing with AI (OpenRouter → Rules)...'
               : mode === 'job_specific'
               ? 'Extract Requirements & Setup Feasibility'
               : 'Map Goal to Target Profile'}
@@ -329,12 +440,27 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
               </p>
             </div>
             <button
-              onClick={() => setActiveTab('gaps')}
-              className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors shadow-sm"
+              onClick={handleConfirmRequirements}
+              disabled={isConfirming}
+              className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 transition-colors shadow-sm disabled:opacity-50"
             >
-              Run Skill Matching <ArrowRight className="w-3.5 h-3.5" />
+              {isConfirming ? 'Saving...' : 'Confirm & Run Matching'} <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
+
+          {/* Warning from ambiguous goal mapping */}
+          {extractionWarning && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-300">
+              ⚠️ {extractionWarning}
+            </div>
+          )}
+
+          {/* Error from extraction failure */}
+          {extractionError && (
+            <div className="rounded-lg border border-rose-500/30 bg-rose-950/20 p-3 text-xs text-rose-300">
+              {extractionError}
+            </div>
+          )}
 
           {/* List of Target Requirements */}
           <div className="space-y-2.5 overflow-y-auto max-h-[340px] pr-1">
