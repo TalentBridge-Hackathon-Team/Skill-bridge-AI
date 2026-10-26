@@ -8,6 +8,11 @@ class UserProfile(models.Model):
     education = models.CharField(max_length=255, blank=True)
     experience_level = models.CharField(max_length=100, default="Entry Level")
     skills = models.JSONField(default=list)  # list of skill names
+    professional_background = models.TextField(blank=True, help_text="Summary of work history and professional context")
+    project_descriptions = models.JSONField(default=list, help_text="List of {title, description, link, skills_demonstrated[]}")
+    # Goal context parameters
+    target_date = models.DateField(null=True, blank=True, help_text="Target date for achieving the goal/role")
+    study_capacity_hours_per_week = models.PositiveSmallIntegerField(default=10, help_text="Self-reported weekly study hours")
     resume_file = models.FileField(upload_to='resumes/', null=True, blank=True)
     resume_parsed_text = models.TextField(blank=True, help_text="Parsed CV text for RAG/embedding extraction")
     updated_at = models.DateTimeField(auto_now=True)

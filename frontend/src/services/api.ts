@@ -14,18 +14,27 @@ import type {
   Goal,
   FeasibilityAssessment,
   ApplicationChecklistItem,
-  ResumeUploadResponse
+  ResumeUploadResponse,
+  SkillProfileSummary,
 } from '../types';
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
 
+/** Returns the stored JWT access token, or null if the user is not logged in. */
+function getStoredToken(): string | null {
+  return localStorage.getItem('sb_access');
+}
 
 async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   try {
     const isFormData = options.body instanceof FormData;
+    const token = getStoredToken();
+
     const headers: Record<string, string> = {
       ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-      ...((options.headers as Record<string, string>) || {})
+      // Attach Bearer token if one is stored
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...((options.headers as Record<string, string>) || {}),
     };
 
     const res = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -44,6 +53,9 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
 
 export const api = {
   // Member 1: Profile, Evidence & CV Upload
+  createProfile: (data: Partial<UserProfile>): Promise<UserProfile> =>
+    apiFetch<UserProfile>('/profiles/', { method: 'POST', body: JSON.stringify(data) }),
+
   getProfile: (userId: string = 'demo_user'): Promise<UserProfile> =>
     apiFetch<UserProfile>(`/profiles/me/?user_id=${userId}`),
 
@@ -62,6 +74,9 @@ export const api = {
 
 
   // Member 2: Mode A (Job-Specific & Deadline-Aware) and Mode B (Goal-Based)
+  getSkillProfiles: (): Promise<SkillProfileSummary[]> =>
+    apiFetch<SkillProfileSummary[]>('/skill-profiles/'),
+
   submitJobAnalysis: (data: FormData | { job_text: string; user_id?: string; deadline_date?: string; days_remaining?: number; study_hours_per_week?: number }): Promise<JobAnalysis> => {
     if (data instanceof FormData) {
       return apiFetch<JobAnalysis>('/job-analyses/', { method: 'POST', body: data });
