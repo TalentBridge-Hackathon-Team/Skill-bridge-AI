@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import type { FormEvent } from 'react';
+import { Plus, ExternalLink, Save, Upload, FileText, CheckCircle2 } from 'lucide-react';
 import type { FormEvent, ChangeEvent } from 'react';
 import {
   Plus, ExternalLink, Save, Upload, FileText,
@@ -234,6 +236,9 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
   return (
     <div className="space-y-6">
       <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Learner Career Profile & Evidence</h1>
+        <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
+          Manage your career profile, upload your resume for intelligent extraction, and showcase your project portfolio.
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Learner Career Profile</h1>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
           Manage your profile, self-reported skills, project evidence, and goal parameters.
@@ -357,6 +362,10 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
           {/* CV Upload */}
           <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800/80 bg-white dark:bg-[#0e131f] p-6 space-y-4 shadow-xs">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+              <FileText className="w-4 h-4 text-slate-600 dark:text-slate-300" /> Upload Resume
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Upload your resume (.pdf, .docx, or .txt) to automatically extract your skills, experience, and projects.
               <FileText className="w-4 h-4 text-slate-600 dark:text-slate-300" /> Upload CV / Resume
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -375,6 +384,7 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
                 className="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-4 py-2 text-xs font-semibold text-slate-800 dark:text-slate-200 disabled:opacity-50 transition-colors"
               >
                 <Upload className="w-3.5 h-3.5" />
+                {isUploading ? 'Uploading...' : 'Upload Resume'}
                 {isUploading ? 'Uploading…' : 'Upload & Parse CV'}
               </button>
 
@@ -385,6 +395,10 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
               )}
 
               {uploadResult?.s3?.success && (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/20 p-3 space-y-1 text-xs animate-in fade-in">
+                  <div className="flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-400">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    <span>Resume uploaded successfully</span>
                 <div className="rounded-xl border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/20 p-3 space-y-2 text-xs">
                   <div className="flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="w-4 h-4" /> Cloud Pipeline Activated
@@ -401,6 +415,9 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
                       </div>
                     )}
                   </div>
+                  <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
+                    Your skills and background are saved to your profile and ready for job matching.
+                  </p>
                 </div>
               )}
             </form>

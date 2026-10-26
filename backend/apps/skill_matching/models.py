@@ -25,6 +25,10 @@ class MatchReport(models.Model):
     priority = models.CharField(max_length=50, choices=PRIORITY_CHOICES, default='Medium')
     recommended_action = models.CharField(max_length=255, blank=True)
     task_type = models.CharField(max_length=50, default='assessment')
+    effort_hours_estimate = models.FloatField(default=0.0)
+    effort_breakdown = models.JSONField(default=dict, blank=True)
+    similarity_score = models.FloatField(null=True, blank=True)
+    supporting_evidence_ids = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

@@ -8,12 +8,20 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  server: {
+    proxy: {
+      '/api': {
+        target: process.env.VITE_BACKEND_PROXY_TARGET || 'http://backend:8000',
+        changeOrigin: true,
+      },
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['e2e/**/*', 'node_modules/**/*'],
-    pool: 'threads',
+    pool: 'forks',
   },
 })

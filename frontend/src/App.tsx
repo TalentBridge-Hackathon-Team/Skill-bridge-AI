@@ -12,6 +12,26 @@ import SkillGapPage from './pages/SkillGapPage';
 import AssessmentPage from './pages/AssessmentPage';
 import RoadmapPage from './pages/RoadmapPage';
 
+function AppContent() {
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam) return tabParam;
+      const hash = window.location.hash.replace('#', '');
+      if (hash) return hash;
+    }
+    return 'dashboard';
+  });
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tab);
+      window.history.replaceState({}, '', url.toString());
+    }
+  };
 // ── Auth gate — shows Login/Register when user is not authenticated ───────────
 
 function AuthGate() {
@@ -37,6 +57,9 @@ function AppShell() {
     <div className="min-h-screen flex bg-[#f8f9fa] dark:bg-[#0b0f17] text-slate-800 dark:text-slate-100 font-sans selection:bg-indigo-500/20 antialiased transition-colors duration-200">
       <Sidebar
         activeTab={activeTab}
+        setActiveTab={handleTabChange}
+        userName="Student"
+        userRole="Pro plan"
         setActiveTab={setActiveTab}
         userName={displayName}
         userRole="SkillBridge AI"
@@ -47,6 +70,12 @@ function AppShell() {
         <Header title={activeTitle} userName={displayName} />
 
         <main className="flex-1 p-6 sm:p-8 max-w-7xl w-full mx-auto">
+          {activeTab === 'dashboard' && <DashboardPage setActiveTab={handleTabChange} />}
+          {activeTab === 'profile' && <ProfilePage setActiveTab={handleTabChange} />}
+          {activeTab === 'analysis' && <JobAnalysisPage setActiveTab={handleTabChange} />}
+          {activeTab === 'gaps' && <SkillGapPage setActiveTab={handleTabChange} />}
+          {activeTab === 'assessment' && <AssessmentPage setActiveTab={handleTabChange} />}
+          {activeTab === 'roadmap' && <RoadmapPage setActiveTab={handleTabChange} />}
           {activeTab === 'dashboard'  && <DashboardPage setActiveTab={setActiveTab} />}
           {activeTab === 'profile'    && <ProfilePage setActiveTab={setActiveTab} />}
           {activeTab === 'analysis'   && <JobAnalysisPage setActiveTab={setActiveTab} />}
@@ -57,7 +86,7 @@ function AppShell() {
 
         <footer className="border-t border-slate-200/80 dark:border-slate-800/80 bg-white/50 dark:bg-[#0e131f]/50 px-8 py-3 text-xs text-slate-400 dark:text-slate-500 flex items-center justify-between">
           <span>SkillBridge AI • AI Career OS</span>
-          <span>Blueprint 2.0 Hackathon Architecture • Light & Dark Themes</span>
+          <span>Evidence-based & deadline-aware planning</span>
         </footer>
       </div>
     </div>

@@ -39,6 +39,7 @@ from .validators import (
     validate_study_hours,
 )
 from services.openrouter_service import openrouter_service
+from services.domain_guard_service import domain_guard
 from services.openrouter_service import _rule_engine_extract
 from services.skill_profiles import list_profiles
 
@@ -92,6 +93,13 @@ class JobAnalysisListCreateView(APIView):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get(self, request):
+        user_id = request.query_params.get("user_id")
+        if user_id:
+            analyses = JobAnalysis.objects.filter(user_id=user_id).order_by('-created_at')
+        else:
+            analyses = JobAnalysis.objects.filter(user_id__in=["usr_demo_001", "demo_user"]).order_by('-created_at')
+        serializer = JobAnalysisSerializer(analyses, many=True)
+        return Response(serializer.data)
         user_id = _get_user_id(request)
         analyses = JobAnalysis.objects.filter(user_id=user_id).order_by("-created_at")
         return Response(JobAnalysisSerializer(analyses, many=True).data)
@@ -110,6 +118,39 @@ class JobAnalysisListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        role_title = request.data.get("role_title") or request.data.get("title") or "Junior Backend Developer"
+        mode = request.data.get("mode", "job_specific")
+
+        # Evaluate safety & domain support
+        safety_check = domain_guard.evaluate_input_safety_and_domain(job_text, role_title)
+        if not safety_check["is_safe"]:
+            return Response(
+                {
+                    "error": safety_check["error_type"],
+                    "message": safety_check["message"]
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not safety_check["is_tech_domain"]:
+            return Response(
+                {
+                    "error": "domain_in_development",
+                    "status": "domain_in_development",
+                    "detected_domain": safety_check.get("detected_domain", "Non-Technical"),
+                    "message": safety_check["message"],
+                    "suggested_tech_roles": safety_check.get("suggested_tech_roles", [])
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
+
+        # Extract requirements using OpenRouter LLM (with deterministic rule engine validation)
+        extraction_data = openrouter_service.extract_job_requirements(job_text or "(Screenshot provided)", role_title=role_title)
+        extracted_reqs = extraction_data.get("requirements", [])
+        final_role_title = extraction_data.get("role_title", role_title)
+        summary = extraction_data.get("summary", f"Extracted requirements for {final_role_title}.")
+
+        analysis_id = f"job_{uuid.uuid4().hex[:8]}"
         try:
             job_text = validate_job_text(raw_job_text) if raw_job_text else \
                        "(Image screenshot provided — text extraction pending)"
@@ -146,6 +187,17 @@ class JobAnalysisListCreateView(APIView):
         analysis = JobAnalysis.objects.create(
             analysis_id=_generate_id("job"),
             user_id=user_id,
+            mode=mode,
+            role_title=final_role_title,
+            job_text=job_text or "(Image screenshot provided for extraction)",
+            job_image=job_image,
+            days_remaining=days_remaining,
+            study_hours_per_week=study_hours_per_week,
+            summary=summary,
+            status="completed"
+        )
+
+        for req_item in extracted_reqs:
             mode="job_specific",
             role_title=role_title,
             job_text=job_text,
@@ -196,6 +248,26 @@ class JobAnalysisRequirementsUpdateView(APIView):
         try:
             analysis = JobAnalysis.objects.get(analysis_id=analysis_id)
         except JobAnalysis.DoesNotExist:
+            return Response({"error": "Job analysis not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        req_list = request.data.get("requirements", [])
+        if isinstance(req_list, list):
+            analysis.requirements.all().delete()
+            for r in req_list:
+                Requirement.objects.create(
+                    requirement_id=r.get("requirement_id") or r.get("id") or f"req_{uuid.uuid4().hex[:6]}",
+                    analysis=analysis,
+                    skill_name=r.get("skill_name"),
+                    category=r.get("category", "framework"),
+                    importance=r.get("importance", "required"),
+                    source_excerpt=r.get("source_excerpt", "User updated"),
+                    user_confirmed=True
+                )
+        return Response({
+            "message": "Requirements updated",
+            "analysis_id": analysis_id,
+            "analysis": JobAnalysisSerializer(analysis).data
+        })
             return Response(
                 {"error": f"Job analysis '{analysis_id}' not found."},
                 status=status.HTTP_404_NOT_FOUND,

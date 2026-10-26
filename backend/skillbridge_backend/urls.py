@@ -45,6 +45,7 @@ urlpatterns = [
     path('api/goals/', GoalListCreateView.as_view(), name='api-goals'),
     path('api/job-analyses/', include('apps.job_analysis.urls')),
     path('api/job-analyses/', include('apps.skill_matching.urls')),
+    path('api/skill-matching/', include('apps.skill_matching.urls')),
     path('api/assessments/', include('apps.assessments.urls')),
     path('api/roadmap/', include('apps.roadmap.urls')),
 ]

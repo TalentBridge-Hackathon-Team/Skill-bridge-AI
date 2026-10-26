@@ -134,6 +134,8 @@ class ProfileMeView(APIView):
         return Response(serializer.data)
 
 
+import uuid
+
 class ProfileEvidenceView(APIView):
     """
     POST /api/profiles/me/evidence/ — Add a new skill evidence record.
@@ -141,6 +143,15 @@ class ProfileEvidenceView(APIView):
     """
 
     def post(self, request):
+        user_id = request.query_params.get("user_id") or request.data.get("user_id") or "usr_demo_001"
+        profile, _ = UserProfile.objects.get_or_create(
+            user_id=user_id,
+            defaults={"name": "Demo User", "target_role": "Junior Backend Developer"}
+        )
+
+        data = request.data.copy() if hasattr(request.data, "copy") else dict(request.data)
+        if not data.get("evidence_id"):
+            data["evidence_id"] = f"evi_{uuid.uuid4().hex[:10]}"
         caller_user_id = _resolve_user_id(request)
         profile = UserProfile.objects.filter(user_id=caller_user_id).first()
         if not profile:

@@ -47,9 +47,5 @@ class RAGMultimodalService:
         if profile_id:
             qs = qs.filter(profile_id=profile_id)
 
-        if connection.vendor == 'postgresql':
-            from pgvector.django import CosineDistance
-            return qs.annotate(distance=CosineDistance('embedding', query_vector)).order_by('distance')[:limit]
-
-        # In-memory/SQLite test fallback
-        return qs[:limit]
+        from pgvector.django import CosineDistance
+        return qs.annotate(distance=CosineDistance('embedding', query_vector)).order_by('distance')[:limit]

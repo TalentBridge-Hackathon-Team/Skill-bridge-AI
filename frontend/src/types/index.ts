@@ -181,6 +181,12 @@ export interface FeasibilityAssessment {
   interpretation: string;
   assumptions: string[];
   suggested_scope?: string;
+  is_scoped_down?: boolean;
+  deferred_count?: number;
+  deferred_hours?: number;
+  full_plan_effort_hours?: number;
+  sprint_skills?: string[];
+  deferred_skills?: string[];
 }
 
 export interface MatchReport {
@@ -194,6 +200,8 @@ export interface MatchReport {
   recommended_action?: string;
   source_excerpt?: string;
   effort_hours_estimate?: number;
+  is_deferred?: boolean;
+  in_sprint_scope?: boolean;
 }
 
 export interface CuratedResource {
@@ -252,3 +260,118 @@ export interface AssessmentSubmission {
   assertions?: string;
   explanation?: string;
 }
+
+export interface CriteriaBreakdown {
+  id: string;
+  name: string;
+  score: number;
+  max_score: number;
+  passed: boolean;
+  feedback: string;
+}
+
+export interface InteractiveFlowStep {
+  step: number;
+  title: string;
+  detail: string;
+  status_code?: number | null;
+  visual_icon?: string;
+  highlight?: string;
+}
+
+export interface HintLadderStep {
+  level: number;
+  hint_type: string;
+  text?: string;
+  code_diff?: string;
+}
+
+export interface PersonalizedSupport {
+  title: string;
+  concept: string;
+  user_preference?: 'visual' | 'hands_on' | 'socratic';
+  struggle_detected: boolean;
+  interactive_flow_steps: InteractiveFlowStep[];
+  guided_hint_ladder: HintLadderStep[];
+  recommended_micro_task?: {
+    title: string;
+    deliverable: string;
+    estimated_minutes: number;
+  };
+}
+
+export interface EvaluationResult {
+  submission_id: string;
+  task_id: string;
+  user_id: string;
+  submission_type: string;
+  score: number;
+  max_score: number;
+  status: 'passed' | 'failed';
+  criteria_breakdown: CriteriaBreakdown[];
+  overall_feedback: string;
+  personalized_support?: PersonalizedSupport;
+  roadmap_sync?: {
+    roadmap_updated: boolean;
+    evidence_created: boolean;
+    recalculated_plan?: {
+      remaining_effort_hours: number;
+      deadline_days_left: number;
+      daily_required_pace_hours: number;
+      feasibility_status: string;
+      completed_tasks: number;
+      total_tasks: number;
+      completion_percentage: number;
+    };
+  };
+  evaluated_at?: string;
+}
+
+export interface RoadmapFeasibilityMetrics {
+  total_tasks: number;
+  completed_tasks: number;
+  completion_percentage: number;
+  total_effort_hours: number;
+  remaining_effort_hours: number;
+  completed_effort_hours: number;
+  deadline_days: number;
+  daily_available_hours: number;
+  feasibility: {
+    status: string;
+    score: number;
+    color: string;
+    daily_pace: number;
+    guidance: string;
+  };
+}
+
+export interface PracticeProjectOption {
+  title: string;
+  track: string;
+  level: string;
+  time_estimate_hours?: number;
+  difficulty_tier?: 'foundation' | 'core' | 'stretch';
+  is_recommended?: boolean;
+  recommendation_rationale?: string;
+  description: string;
+  rationale: string;
+  key_tech: string[];
+  target_deliverables: string[];
+}
+
+export interface RemediationAdvice {
+  success: boolean;
+  skill_name: string;
+  experience_level?: string;
+  role_title?: string;
+  remediation_hours?: number;
+  recommended_track_index?: number;
+  recommendation_rationale?: string;
+  interview_focus_questions: string[];
+  hands_on_project_exercise: string;
+  practice_project_options?: PracticeProjectOption[];
+  recommended_deliverables: string[];
+  advisor_mode?: string;
+  model_used?: string;
+}
+
