@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import AssessmentPage from '../pages/AssessmentPage';
 import { skillGapService } from '../services/skillGapService';
-import { MOCK_TARGET_ROLES } from '../services/mockSkillGapData';
+import { MOCK_TARGET_ROLES } from './testFixtures';
 
 describe('AssessmentPage Component', () => {
   beforeEach(() => {

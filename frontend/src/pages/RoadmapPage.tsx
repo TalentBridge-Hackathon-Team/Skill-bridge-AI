@@ -18,9 +18,8 @@ import {
   Cpu,
   Trophy
 } from 'lucide-react';
-import type { RoadmapTask } from '../types';
+import type { RoadmapTask, TargetRoleOption } from '../types';
 import { skillGapService } from '../services/skillGapService';
-import type { TargetRoleOption } from '../services/mockSkillGapData';
 import type { TraceableMatchResult } from '../utils/skillGapCalculations';
 import {
   calculateHorizonCountdown,

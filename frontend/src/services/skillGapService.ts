@@ -13,12 +13,9 @@ import type {
   SkillEvidence,
   FeasibilityAssessment,
   FeasibilityBand,
-  JobAnalysis
+  JobAnalysis,
+  TargetRoleOption
 } from '../types';
-import {
-  MOCK_TARGET_ROLES,
-  type TargetRoleOption
-} from './mockSkillGapData';
 import {
   buildEvidenceMapping,
   type TraceableMatchResult,
@@ -110,7 +107,7 @@ class SkillGapService {
     } catch (err) {
       console.warn('Could not fetch analyses from live backend:', err);
     }
-    return MOCK_TARGET_ROLES;
+    return [];
   }
 
   /**
@@ -371,9 +368,22 @@ class SkillGapService {
       role?.requirements || []
     );
 
+    const fallbackRole: TargetRoleOption = role || {
+      id: targetRoleId,
+      role_title: profile.target_role || 'Target Role',
+      level: 'Mid',
+      department: 'Engineering',
+      mode: 'job_specific',
+      days_remaining: daysRemaining,
+      study_hours_per_week: studyHoursPerWeek,
+      job_text: '',
+      summary: '',
+      requirements: []
+    };
+
     return {
       role: {
-        ...(role || MOCK_TARGET_ROLES[0]),
+        ...fallbackRole,
         days_remaining: daysRemaining,
         study_hours_per_week: studyHoursPerWeek
       },

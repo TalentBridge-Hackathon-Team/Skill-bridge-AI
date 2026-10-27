@@ -12,7 +12,7 @@ import {
   ExternalLink,
   ArrowRight
 } from 'lucide-react';
-import type { TargetRoleOption } from '../../services/mockSkillGapData';
+import type { TargetRoleOption } from '../../types';
 import {
   calculateHorizonCountdown,
   evaluateAdaptiveCapacity,

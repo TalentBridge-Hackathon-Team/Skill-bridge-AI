@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import SkillGapPage from '../pages/SkillGapPage';
 import { skillGapService } from '../services/skillGapService';
-import { MOCK_TARGET_ROLES } from '../services/mockSkillGapData';
+import { MOCK_TARGET_ROLES } from './testFixtures';
 
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({

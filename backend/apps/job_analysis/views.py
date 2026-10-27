@@ -101,7 +101,7 @@ class JobAnalysisListCreateView(APIView):
             candidates.add(str(query_user))
         if auth_user:
             candidates.add(str(auth_user))
-        analyses = JobAnalysis.objects.filter(user_id__in=list(candidates)).order_by('-created_at')
+        analyses = JobAnalysis.objects.filter(user_id__in=list(candidates)).prefetch_related('requirements').order_by('-created_at')
         serializer = JobAnalysisSerializer(analyses, many=True)
         return Response(serializer.data)
 
@@ -247,7 +247,7 @@ class JobAnalysisDetailView(APIView):
 
     def get(self, request, analysis_id):
         try:
-            analysis = JobAnalysis.objects.get(analysis_id=analysis_id)
+            analysis = JobAnalysis.objects.prefetch_related('requirements').get(analysis_id=analysis_id)
         except JobAnalysis.DoesNotExist:
             return Response(
                 {"error": f"Job analysis '{analysis_id}' not found."},

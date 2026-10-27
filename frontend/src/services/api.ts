@@ -25,10 +25,44 @@ function getStoredToken(): string | null {
   return localStorage.getItem('sb_access');
 }
 
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+const apiCache = new Map<string, CacheEntry<any>>();
+const CACHE_TTL_MS = 25_000; // 25 seconds fast client-side TTL
+
+export function clearApiCache(prefix?: string): void {
+  if (!prefix) {
+    apiCache.clear();
+  } else {
+    for (const key of apiCache.keys()) {
+      if (key.includes(prefix)) {
+        apiCache.delete(key);
+      }
+    }
+  }
+}
+
 async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   try {
     const isFormData = options.body instanceof FormData;
+    const method = (options.method || 'GET').toUpperCase();
+    const isGet = method === 'GET';
     const token = getStoredToken();
+    const cacheKey = `${endpoint}::${token || 'anon'}`;
+
+    // Fast-path: return cached response for GET requests within TTL
+    if (isGet) {
+      const cached = apiCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+        return cached.data as T;
+      }
+    } else {
+      // Mutations invalidate cached queries to prevent stale data
+      clearApiCache();
+    }
 
     const headers: Record<string, string> = {
       ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
@@ -45,9 +79,22 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
       if (res.status === 401 && typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('skillbridge_session_expired'));
       }
-      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      let errorDetail = '';
+      try {
+        const errorJson = await res.json();
+        if (typeof errorJson === 'string') {
+          errorDetail = errorJson;
+        } else if (errorJson && typeof errorJson === 'object') {
+          errorDetail = errorJson.message || errorJson.error || errorJson.detail || Object.values(errorJson).flat().join(' ');
+        }
+      } catch {}
+      throw new Error(errorDetail ? `HTTP ${res.status}: ${errorDetail}` : `HTTP ${res.status}: ${res.statusText}`);
     }
-    return await res.json();
+    const data = await res.json();
+    if (isGet) {
+      apiCache.set(cacheKey, { data, timestamp: Date.now() });
+    }
+    return data;
   } catch (err) {
     console.error(`API Error on ${endpoint}:`, err);
     throw err;
@@ -55,6 +102,8 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
 }
 
 export const api = {
+  clearCache: clearApiCache,
+
   // Member 1: Profile, Evidence & CV Upload
   createProfile: (data: Partial<UserProfile>): Promise<UserProfile> =>
     apiFetch<UserProfile>('/profiles/', { method: 'POST', body: JSON.stringify(data) }),

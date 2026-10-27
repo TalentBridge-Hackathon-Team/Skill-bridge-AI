@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import RoadmapPage from '../pages/RoadmapPage';
 import { skillGapService } from '../services/skillGapService';
-import { MOCK_TARGET_ROLES } from '../services/mockSkillGapData';
+import { MOCK_TARGET_ROLES } from './testFixtures';
 
 describe('Roadmap and Practical Assessment Correlation (End-to-End Sync)', () => {
   const setActiveTabMock = vi.fn();

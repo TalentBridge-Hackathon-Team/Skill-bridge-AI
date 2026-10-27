@@ -36,12 +36,12 @@ import {
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { skillGapService } from '../services/skillGapService';
-import type { TargetRoleOption } from '../services/mockSkillGapData';
-import type { TraceableMatchResult } from '../utils/skillGapCalculations';
 import type {
   AssessmentSubmission,
   EvaluationResult,
-  InteractiveFlowStep
+  InteractiveFlowStep,
+  TargetRoleOption,
+  TraceableMatchResult
 } from '../types';
 
 interface AssessmentPageProps {

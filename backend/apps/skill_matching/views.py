@@ -17,12 +17,12 @@ class JobAnalysisMatchView(APIView):
     permission_classes = [AllowAny]
     def post(self, request, analysis_id):
         # 1. Resolve analysis by exact ID or role title in Neon database
-        analysis = JobAnalysis.objects.filter(analysis_id=analysis_id).first()
+        analysis = JobAnalysis.objects.prefetch_related('requirements').filter(analysis_id=analysis_id).first()
         if not analysis:
             clean_title = analysis_id.replace('role_', '').replace('_', ' ').strip()
-            analysis = JobAnalysis.objects.filter(role_title__icontains=clean_title).first()
+            analysis = JobAnalysis.objects.prefetch_related('requirements').filter(role_title__icontains=clean_title).first()
         if not analysis:
-            analysis = JobAnalysis.objects.first()
+            analysis = JobAnalysis.objects.prefetch_related('requirements').first()
 
         if not analysis:
             return Response({"error": "Job analysis not found in database"}, status=status.HTTP_404_NOT_FOUND)
@@ -36,11 +36,11 @@ class JobAnalysisMatchView(APIView):
 
         # Retrieve profile for user from Neon database
         profile = (
-            UserProfile.objects.filter(user_id=user_id).first()
-            or UserProfile.objects.filter(user_id=analysis.user_id).first()
-            or UserProfile.objects.filter(user_id="usr_demo_001").first()
-            or UserProfile.objects.filter(user_id="demo_user").first()
-            or UserProfile.objects.first()
+            UserProfile.objects.prefetch_related('evidence_records').filter(user_id=user_id).first()
+            or UserProfile.objects.prefetch_related('evidence_records').filter(user_id=analysis.user_id).first()
+            or UserProfile.objects.prefetch_related('evidence_records').filter(user_id="usr_demo_001").first()
+            or UserProfile.objects.prefetch_related('evidence_records').filter(user_id="demo_user").first()
+            or UserProfile.objects.prefetch_related('evidence_records').first()
         )
 
         if not profile:

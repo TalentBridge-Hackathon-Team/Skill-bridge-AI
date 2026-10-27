@@ -1,27 +1,7 @@
 /**
- * SkillBridge AI - Member 3: Realistic Mock Data & Integration Fixtures
- * 
- * Reuses canonical types: JobAnalysis, Requirement, UserProfile, SkillEvidence
- * Aligned with Blueprint 2.0 (Sections 4, 7, 8, 11, 12)
+ * Test fixtures for isolated Vitest unit/integration tests
  */
-
-import type {
-  JobAnalysis,
-  UserProfile
-} from '../types';
-
-export interface TargetRoleOption {
-  id: string;
-  role_title: string;
-  level: string;
-  department: string;
-  mode: 'job_specific' | 'goal_based';
-  days_remaining: number;
-  study_hours_per_week: number;
-  job_text: string;
-  summary: string;
-  requirements: JobAnalysis['requirements'];
-}
+import type { TargetRoleOption, UserProfile } from '../types';
 
 export const MOCK_TARGET_ROLES: TargetRoleOption[] = [
   {
@@ -349,7 +329,6 @@ export const MOCK_USER_PROFILE: UserProfile = {
 };
 
 export const MOCK_COMPLETED_ASSESSMENTS: Array<{ target_skill: string; score: number }> = [
-  // API Testing: scored 6/10 initially to illustrate "Needs improvement" or unverified status
   {
     target_skill: 'API Testing',
     score: 6

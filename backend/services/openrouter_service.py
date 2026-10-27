@@ -436,7 +436,7 @@ class OpenRouterService:
                     f"{self.base_url}/chat/completions",
                     headers=self._headers(),
                     json=payload,
-                    timeout=20,
+                    timeout=7,
                 )
                 if response.status_code == 200:
                     data = response.json()

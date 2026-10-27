@@ -20,6 +20,21 @@ export type FeasibilityBand =
   | "Not feasible as scoped"
   | "Insufficient information";
 
+export type { TraceableMatchResult } from '../utils/skillGapCalculations';
+
+export interface TargetRoleOption {
+  id: string;
+  role_title: string;
+  level: string;
+  department: string;
+  mode: 'job_specific' | 'goal_based';
+  days_remaining: number;
+  study_hours_per_week: number;
+  job_text: string;
+  summary: string;
+  requirements: Requirement[];
+}
+
 // ── Auth types ──────────────────────────────────────────────────────────────
 
 export interface SkillProfileSummary {

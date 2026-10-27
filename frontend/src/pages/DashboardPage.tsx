@@ -29,31 +29,28 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
     let isCancelled = false;
 
     async function loadDashboardData() {
-      // 1. Member 1: Profile & Evidence
+      // Execute all 4 primary data fetches concurrently to eliminate sequential network waterfall
       try {
-        const p = await api.getProfile('demo_user');
-        if (!isCancelled && p) setProfile(p);
-      } catch {}
+        const [profileRes, analysesRes, gapDataRes, roadmapRes] = await Promise.allSettled([
+          api.getProfile('demo_user'),
+          api.getJobAnalyses('demo_user'),
+          skillGapService.runAnalysis(),
+          api.getRoadmap('demo_user')
+        ]);
 
-      // 2. Member 2: Job Analyses
-      try {
-        const a = await api.getJobAnalyses('demo_user');
-        if (!isCancelled && Array.isArray(a)) setAnalyses(a);
-      } catch {}
+        if (isCancelled) return;
 
-      // 3. Member 3: Live Skill Gap Match Score
-      try {
-        const gapData = await skillGapService.runAnalysis();
-        if (!isCancelled && gapData?.summary) {
-          setMatchScore(gapData.summary.match_score);
+        if (profileRes.status === 'fulfilled' && profileRes.value) {
+          setProfile(profileRes.value);
         }
-      } catch {}
-
-      // 4. Member 4: Roadmap & Latest Assessment
-      try {
-        const rm = await api.getRoadmap('demo_user');
-        if (!isCancelled && rm?.tasks) {
-          setRoadmapTasks(rm.tasks);
+        if (analysesRes.status === 'fulfilled' && Array.isArray(analysesRes.value)) {
+          setAnalyses(analysesRes.value);
+        }
+        if (gapDataRes.status === 'fulfilled' && gapDataRes.value?.summary) {
+          setMatchScore(gapDataRes.value.summary.match_score);
+        }
+        if (roadmapRes.status === 'fulfilled' && roadmapRes.value?.tasks) {
+          setRoadmapTasks(roadmapRes.value.tasks);
         }
       } catch {}
 
@@ -93,12 +90,23 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
   const completedRoadmapTasks = roadmapTasks.filter(t => t.status === 'completed').length;
   const totalRoadmapTasks = roadmapTasks.length;
 
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) {
+      return 'Good morning';
+    } else if (hour >= 12 && hour < 18) {
+      return 'Good afternoon';
+    } else {
+      return 'Good evening';
+    }
+  }, []);
+
   return (
     <div className="space-y-6">
       {/* 1. Header Greeting Matching Screenshot */}
       <div>
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-          Good morning, {studentName} <span className="text-slate-900 dark:text-white text-xl">✦</span>
+          {greeting}, {studentName} <span className="text-slate-900 dark:text-white text-xl">✦</span>
         </h1>
         <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
           This view updates from your real resume, JD, roadmap, quiz, interview, and jobs activity.

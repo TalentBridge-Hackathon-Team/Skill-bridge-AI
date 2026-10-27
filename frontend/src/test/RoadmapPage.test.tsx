@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import RoadmapPage from '../pages/RoadmapPage';
 import { skillGapService } from '../services/skillGapService';
-import { MOCK_TARGET_ROLES } from '../services/mockSkillGapData';
+import { MOCK_TARGET_ROLES } from './testFixtures';
 
 describe('RoadmapPage Component (Member 4)', () => {
   const setActiveTabMock = vi.fn();

@@ -21,8 +21,7 @@ import {
   type SkillGapAnalysisResponse
 } from '../services/skillGapService';
 import { calculateFeasibility, type TraceableMatchResult } from '../utils/skillGapCalculations';
-import type { TargetRoleOption } from '../services/mockSkillGapData';
-import type { SkillEvidence } from '../types';
+import type { TargetRoleOption, SkillEvidence } from '../types';
 
 interface SkillGapPageProps {
   setActiveTab: (tab: string) => void;

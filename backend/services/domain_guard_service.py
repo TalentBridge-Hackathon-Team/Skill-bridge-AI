@@ -304,6 +304,8 @@ class DomainGuardService:
     def _is_gibberish(text: str) -> bool:
         """
         Detects unreadable gibberish, keyboard mashing, or non-lexical spam.
+        Treats 'y' as vowel-capable to prevent false positives on technical terms
+        like 'asynchronous', 'synchronization', 'cryptography', and 'system'.
         """
         words = text.split()
         if not words:
@@ -313,13 +315,24 @@ class DomainGuardService:
         if re.search(r"(.)\1{5,}", text):
             return True
 
-        # 2. Check for keyboard mash patterns (e.g., 6+ consecutive consonants or literal row walk)
+        # 2. Check for keyboard mash patterns (consonants without vowels)
+        # Note: 'y' is excluded from consonants to protect technical words
+        mash_count = 0
         for w in words:
             clean_word = re.sub(r"[^a-zA-Z]", "", w.lower())
-            if len(clean_word) >= 6 and re.search(r"[bcdfghjklmnpqrstvwxyz]{6,}", clean_word):
-                return True
-            if any(walk in clean_word for walk in ["asdfgh", "qwerty", "zxcvbn"]):
-                return True
+            if not clean_word:
+                continue
+            has_consonant_mash = len(clean_word) >= 8 and bool(re.search(r"[bcdfghjklmnpqrstvwxz]{8,}", clean_word))
+            has_row_walk = any(walk in clean_word for walk in ["asdfgh", "qwerty", "zxcvbn"])
+            if has_consonant_mash or has_row_walk:
+                mash_count += 1
+
+        # If it's a short text (<= 4 words), any keyboard mash flags it
+        if len(words) <= 4 and mash_count > 0:
+            return True
+        # For longer texts, only flag if an overwhelming proportion (> 40%) is keyboard mash
+        if len(words) > 4 and (mash_count / len(words)) > 0.4:
+            return True
 
         # 3. Check for purely symbol/punctuation spam string
         clean_no_space = "".join(words)
