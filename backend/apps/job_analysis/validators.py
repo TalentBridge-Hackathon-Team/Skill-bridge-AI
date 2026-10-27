@@ -34,9 +34,10 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
 # ---------------------------------------------------------------------------
 # Job description validators
 # ---------------------------------------------------------------------------
-def validate_job_text(job_text: str) -> str:
+def validate_job_text(job_text: str, has_image: bool = False) -> str:
     """
     Validates and sanitises the job description text.
+    If has_image is True, short text (e.g. role titles like 'Full stack Engineer') or empty text is accepted.
     Returns the stripped text on success, raises ValidationError on failure.
     """
     if not isinstance(job_text, str):
@@ -45,6 +46,18 @@ def validate_job_text(job_text: str) -> str:
         )
 
     cleaned = job_text.strip()
+
+    if has_image:
+        if len(cleaned) > MAX_JOB_TEXT_CHARS:
+            raise ValidationError(
+                {
+                    "job_text": (
+                        f"Job description is too long ({len(cleaned):,} characters). "
+                        f"Maximum allowed is {MAX_JOB_TEXT_CHARS:,} characters."
+                    )
+                }
+            )
+        return cleaned
 
     if len(cleaned) == 0:
         raise ValidationError(
@@ -56,8 +69,7 @@ def validate_job_text(job_text: str) -> str:
             {
                 "job_text": (
                     f"Job description is too short ({len(cleaned)} characters). "
-                    f"Please provide at least {MIN_JOB_TEXT_CHARS} characters so "
-                    "the AI has enough context to extract meaningful requirements."
+                    f"Please provide at least {MIN_JOB_TEXT_CHARS} characters so the AI has enough context to extract requirements."
                 )
             }
         )
@@ -200,6 +212,16 @@ def validate_goal_text(goal_text: str) -> str:
                 )
             }
         )
+
+    try:
+        from services.domain_guard_service import DomainGuardService
+        guard_res = DomainGuardService.evaluate_input_safety_and_domain(cleaned)
+        if not guard_res.get("is_safe"):
+            raise ValidationError(
+                {"goal_text": guard_res.get("message", "Adversarial or prompt injection pattern detected.")}
+            )
+    except ImportError:
+        pass
 
     return cleaned
 

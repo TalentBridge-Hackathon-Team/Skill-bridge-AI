@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
-import type { FormEvent } from 'react';
-import { Plus, ExternalLink, Save, Upload, FileText, CheckCircle2 } from 'lucide-react';
 import type { FormEvent, ChangeEvent } from 'react';
 import {
   Plus, ExternalLink, Save, Upload, FileText,
   CheckCircle2, Cloud, Zap, Trash2, AlertCircle, X
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import type { UserProfile, SkillEvidence, ResumeUploadResponse, ProjectDescription } from '../types';
 
@@ -84,8 +83,34 @@ interface ProfilePageProps {
 }
 
 export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePageProps) {
-  const [profile, setProfile] = useState<UserProfile>(MOCK_PROFILE);
-  const [evidenceList, setEvidenceList] = useState<SkillEvidence[]>(MOCK_EVIDENCE);
+  const { user } = useAuth();
+  const currentUserId = user ? String(user.id) : 'demo_user';
+
+  const isDemo = !user || currentUserId === 'demo_user' || user.username === 'demo';
+
+  const [profile, setProfile] = useState<UserProfile>(() => {
+    if (!isDemo) {
+      return {
+        user_id: currentUserId,
+        name: user.full_name || user.username || '',
+        target_role: (user as any)?.target_role || '',
+        education: '',
+        experience_level: 'Entry Level',
+        skills: [],
+        professional_background: '',
+        project_descriptions: [],
+        target_date: '',
+        study_capacity_hours_per_week: 14,
+        resume_file: null,
+      };
+    }
+    return {
+      ...MOCK_PROFILE,
+      user_id: currentUserId,
+      name: user?.full_name || user?.username || MOCK_PROFILE.name,
+    };
+  });
+  const [evidenceList, setEvidenceList] = useState<SkillEvidence[]>(isDemo ? MOCK_EVIDENCE : []);
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -102,19 +127,32 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
   const [projectErrors, setProjectErrors] = useState<Record<string, string>>({});
   const [projectSkillInput, setProjectSkillInput] = useState('');
 
-  // Load from backend on mount
+  // Load from backend on mount or when user changes
   useEffect(() => {
-    api.getProfile('demo_user')
+    api.getProfile(currentUserId)
       .then((data) => {
         if (data) {
-          setProfile(data);
+          const mergedData: UserProfile = {
+            ...data,
+            name: (data.name && data.name !== 'Demo User' && data.name !== 'Demo Learner')
+              ? data.name
+              : (user?.full_name || user?.username || data.name || 'Alex Morgan'),
+            user_id: currentUserId,
+          };
+          setProfile(mergedData);
           if (data.evidence?.length) setEvidenceList(data.evidence);
         }
       })
       .catch(() => {
-        // fallback: keep mock data
+        if (user) {
+          setProfile((prev) => ({
+            ...prev,
+            user_id: currentUserId,
+            name: user.full_name || user.username || prev.name,
+          }));
+        }
       });
-  }, []);
+  }, [currentUserId, user]);
 
   // -------------------------------------------------------------------------
   // Profile save
@@ -128,15 +166,30 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
     setFieldErrors({});
     setSaveStatus('saving');
     try {
-      const saved = await api.updateProfile(profile);
-      setProfile(saved);
+      const payload: Partial<UserProfile> = {
+        ...profile,
+        user_id: currentUserId,
+        study_capacity_hours_per_week: Number(profile.study_capacity_hours_per_week) || 10,
+      };
+      if (typeof payload.resume_file === 'string' || payload.resume_file === null) {
+        delete (payload as any).resume_file;
+      }
+      delete (payload as any).evidence;
+
+      const saved = await api.updateProfile(payload);
+      setProfile({
+        ...saved,
+        user_id: currentUserId,
+      });
       setSaveStatus('saved');
       setSaveMessage('Profile saved successfully.');
-    } catch {
+    } catch (err: unknown) {
+      console.error('Failed to update profile:', err);
+      const msg = err instanceof Error ? err.message : 'Please check required fields.';
       setSaveStatus('error');
-      setSaveMessage('Save failed — changes are stored locally.');
+      setSaveMessage(`Save failed (${msg}) — changes are stored locally.`);
     }
-    setTimeout(() => setSaveStatus('idle'), 3000);
+    setTimeout(() => setSaveStatus('idle'), 4000);
   };
 
   // -------------------------------------------------------------------------
@@ -149,7 +202,7 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
     setUploadMessage('');
     setUploadResult(null);
     try {
-      const res = await api.uploadResume(selectedFile, profile.user_id);
+      const res = await api.uploadResume(selectedFile, currentUserId);
       setUploadResult(res);
       setUploadMessage(res.message || `Uploaded: ${selectedFile.name}`);
       if (res.profile) {
@@ -238,9 +291,6 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
       <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Learner Career Profile & Evidence</h1>
         <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Manage your career profile, upload your resume for intelligent extraction, and showcase your project portfolio.
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Learner Career Profile</h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
           Manage your profile, self-reported skills, project evidence, and goal parameters.
         </p>
       </div>
@@ -309,36 +359,7 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
                 />
               </div>
 
-              {/* Goal context: target date + study capacity */}
-              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Target Date</label>
-                  <input
-                    type="date"
-                    className={inputCls()}
-                    value={profile.target_date ?? ''}
-                    onChange={field('target_date')}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Study hrs / week</label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={168}
-                    className={inputCls(fieldErrors.study_capacity_hours_per_week)}
-                    value={profile.study_capacity_hours_per_week ?? 10}
-                    onChange={(e) => {
-                      setProfile({ ...profile, study_capacity_hours_per_week: Number(e.target.value) });
-                      if (fieldErrors.study_capacity_hours_per_week)
-                        setFieldErrors({ ...fieldErrors, study_capacity_hours_per_week: '' });
-                    }}
-                  />
-                  {fieldErrors.study_capacity_hours_per_week && (
-                    <p className="text-[11px] text-red-500 mt-0.5">{fieldErrors.study_capacity_hours_per_week}</p>
-                  )}
-                </div>
-              </div>
+
 
               {/* Save button */}
               <button
@@ -362,31 +383,66 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
           {/* CV Upload */}
           <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800/80 bg-white dark:bg-[#0e131f] p-6 space-y-4 shadow-xs">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
-              <FileText className="w-4 h-4 text-slate-600 dark:text-slate-300" /> Upload Resume
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Upload your resume (.pdf, .docx, or .txt) to automatically extract your skills, experience, and projects.
               <FileText className="w-4 h-4 text-slate-600 dark:text-slate-300" /> Upload CV / Resume
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Accepts .pdf, .docx, .txt — parsed and indexed for RAG embeddings.
+              Upload your resume (.pdf, .docx, or .txt) to automatically extract your skills, experience, and projects.
             </p>
             <form onSubmit={handleResumeUpload} className="space-y-3">
-              <input
-                type="file"
-                accept=".pdf,.docx,.txt"
-                onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
-                className="block w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 dark:file:bg-slate-800 file:text-slate-800 dark:file:text-slate-200"
-              />
-              <button
-                type="submit"
-                disabled={!selectedFile || isUploading}
-                className="w-full flex items-center justify-center gap-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-4 py-2 text-xs font-semibold text-slate-800 dark:text-slate-200 disabled:opacity-50 transition-colors"
-              >
-                <Upload className="w-3.5 h-3.5" />
-                {isUploading ? 'Uploading...' : 'Upload Resume'}
-                {isUploading ? 'Uploading…' : 'Upload & Parse CV'}
-              </button>
+              {!selectedFile ? (
+                <input
+                  type="file"
+                  accept=".pdf,.docx,.txt"
+                  onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+                  className="block w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 dark:file:bg-slate-800 file:text-slate-800 dark:file:text-slate-200 cursor-pointer"
+                />
+              ) : (
+                <div className="flex items-center justify-between p-3 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-950/30 text-xs">
+                  <div className="flex items-center gap-2 truncate text-slate-800 dark:text-slate-200">
+                    <FileText className="w-4 h-4 text-indigo-500 shrink-0" />
+                    <span className="font-semibold truncate">{selectedFile.name}</span>
+                    <span className="text-[10px] text-slate-400 shrink-0">
+                      ({(selectedFile.size / 1024).toFixed(1)} KB)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedFile(null);
+                      setUploadMessage('');
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-800 transition-colors ml-2 shrink-0"
+                    title="Cancel and remove selected file"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Cancel</span>
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={!selectedFile || isUploading}
+                  className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-4 py-2 text-xs font-semibold disabled:opacity-50 transition-colors hover:bg-slate-800 dark:hover:bg-slate-100"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {isUploading ? 'Uploading…' : 'Upload & Parse CV'}
+                </button>
+                {selectedFile && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedFile(null);
+                      setUploadMessage('');
+                    }}
+                    disabled={isUploading}
+                    className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
 
               {uploadMessage && (
                 <div className="text-xs bg-slate-100 dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
@@ -395,10 +451,6 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
               )}
 
               {uploadResult?.s3?.success && (
-                <div className="rounded-xl border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/20 p-3 space-y-1 text-xs animate-in fade-in">
-                  <div className="flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-400">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                    <span>Resume uploaded successfully</span>
                 <div className="rounded-xl border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/20 p-3 space-y-2 text-xs">
                   <div className="flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="w-4 h-4" /> Cloud Pipeline Activated

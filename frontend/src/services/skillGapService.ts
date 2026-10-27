@@ -42,15 +42,32 @@ export interface SkillGapAnalysisResponse {
 class SkillGapService {
   private selectedRoleId: string = 'job_15f49367';
 
+  private resolveUserId(userId?: string): string {
+    if (userId && userId !== 'demo_user') return userId;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const storedId = window.localStorage.getItem('skillbridge_user_id');
+        if (storedId) return storedId;
+        const storedUser = window.localStorage.getItem('skillbridge_auth_user');
+        if (storedUser) {
+          const u = JSON.parse(storedUser);
+          if (u?.id) return String(u.id);
+        }
+      }
+    } catch {}
+    return 'usr_demo_001';
+  }
+
   /**
    * Retrieve list of target roles from live Neon database via JobAnalysis API.
    * If database has analyses, maps them directly into selectable roles.
    */
-  async getTargetRoles(userId: string = 'usr_demo_001'): Promise<TargetRoleOption[]> {
+  async getTargetRoles(userId?: string): Promise<TargetRoleOption[]> {
+    const effectiveUserId = this.resolveUserId(userId);
     try {
       const analyses: JobAnalysis[] = await (api as any).getJobAnalyses
-        ? await (api as any).getJobAnalyses(userId)
-        : await fetch(`http://127.0.0.1:8000/api/job-analyses/?user_id=${userId}`).then(r => {
+        ? await (api as any).getJobAnalyses(effectiveUserId)
+        : await fetch(`http://127.0.0.1:8000/api/job-analyses/?user_id=${effectiveUserId}`).then(r => {
             if (!r.ok) throw new Error(`HTTP ${r.status}: Failed to fetch job analyses`);
             return r.json();
           });
@@ -134,7 +151,7 @@ class SkillGapService {
       job_text: data.job_text,
       days_remaining: data.days_remaining,
       study_hours_per_week: data.study_hours_per_week,
-      user_id: data.userId || 'usr_demo_001'
+      user_id: data.userId || 'demo_user'
     });
 
     const newOption: TargetRoleOption = {
@@ -164,9 +181,31 @@ class SkillGapService {
   /**
    * Retrieve target role by ID
    */
-  async getTargetRole(roleId: string, userId: string = 'usr_demo_001'): Promise<TargetRoleOption | undefined> {
-    const roles = await this.getTargetRoles(userId);
-    return roles.find(r => r.id === roleId) || roles[0];
+  async getTargetRole(roleId: string, userId?: string): Promise<TargetRoleOption | undefined> {
+    const effectiveUserId = this.resolveUserId(userId);
+    const roles = await this.getTargetRoles(effectiveUserId);
+    const found = roles.find(r => r.id === roleId);
+    if (found) return found;
+
+    try {
+      const a = await api.getJobAnalysis(roleId);
+      if (a && a.analysis_id) {
+        return {
+          id: a.analysis_id,
+          role_title: a.role_title,
+          level: a.mode === 'goal_based' ? 'Mode B: Goal-Based' : 'Mode A: Job-Specific (JD Matcher)',
+          department: 'Role Assessment',
+          mode: (a.mode as any) || 'job_specific',
+          days_remaining: a.days_remaining || 14,
+          study_hours_per_week: a.study_hours_per_week || 14,
+          job_text: a.job_text || '',
+          summary: a.summary || `Extracted requirements for ${a.role_title}`,
+          requirements: a.requirements || []
+        };
+      }
+    } catch {}
+
+    return roles[0];
   }
 
   setSelectedRole(roleId: string): void {
@@ -181,10 +220,11 @@ class SkillGapService {
    * Load learner profile from live Neon PostgreSQL backend.
    * Directly propagates error if the backend or database connection fails.
    */
-  async getProfile(userId: string = 'usr_demo_001'): Promise<UserProfile> {
-    const profile = await api.getProfile(userId);
+  async getProfile(userId?: string): Promise<UserProfile> {
+    const effectiveUserId = this.resolveUserId(userId);
+    const profile = await api.getProfile(effectiveUserId);
     if (!profile || !profile.user_id) {
-      throw new Error(`Learner profile for user '${userId}' not found in Neon database.`);
+      throw new Error(`Learner profile for user '${effectiveUserId}' not found in Neon database.`);
     }
     return profile;
   }
@@ -197,11 +237,12 @@ class SkillGapService {
     roleId?: string,
     overrideDaysRemaining?: number,
     overrideStudyHoursPerWeek?: number,
-    userId: string = 'usr_demo_001'
+    userId?: string
   ): Promise<SkillGapAnalysisResponse> {
+    const effectiveUserId = this.resolveUserId(userId);
     const targetRoleId = roleId || this.selectedRoleId;
-    const role = await this.getTargetRole(targetRoleId, userId);
-    const profile = await this.getProfile(userId);
+    const role = await this.getTargetRole(targetRoleId, effectiveUserId);
+    const profile = await this.getProfile(effectiveUserId);
 
     const daysRemaining =
       overrideDaysRemaining !== undefined ? overrideDaysRemaining : (role?.days_remaining ?? 14);

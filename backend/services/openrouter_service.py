@@ -368,15 +368,23 @@ class OpenRouterService:
         Invokes OpenRouter chat completions with OPENROUTER_TEXT_MODEL.
         Includes graceful fallback handling for rate limits (429) or offline states.
         Supports multi-turn conversation history for self-supervised context awareness.
-        max_tokens: int = 1500,
-    ) -> Dict[str, Any]:
+        Always returns a dict with 'success', 'text', and 'model' keys. Never raises.
         """
-        Calls the OpenRouter chat completions endpoint.
-        Always returns a dict with 'success', 'text', and 'model' keys.
-        Never raises.
-        """
+        # If OpenRouter is not configured, directly use Gemini if available
         if not self.api_key:
-            logger.warning("OPENROUTER_API_KEY not configured — using rule engine only.")
+            try:
+                from services.gemini_service import gemini_service
+                if gemini_service.is_configured():
+                    logger.info("OPENROUTER_API_KEY not configured — routing to Google Gemini.")
+                    return gemini_service.generate_text(
+                        prompt=prompt,
+                        system_prompt=system_prompt,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        conversation_messages=conversation_messages
+                    )
+            except Exception as e:
+                logger.warning(f"Gemini direct call error: {e}")
             return {"success": False, "error": "no_api_key",
                     "text": "", "model": self.text_model}
 
@@ -395,7 +403,7 @@ class OpenRouterService:
         else:
             messages.append({"role": "user", "content": prompt})
 
-        # Multi-model fallback cascade to guarantee high availability and prevent 429 rate limit stalls
+        # Multi-model fallback cascade across OpenRouter free models
         configured_models = []
         if self.text_model:
             configured_models = [m.strip() for m in self.text_model.split(",") if m.strip()]
@@ -412,7 +420,6 @@ class OpenRouterService:
             "xingchen-agi/xing4.0-29b-a4b:free",
             "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
         ]
-        # De-duplicate while preserving priority order
         seen_models = set()
         models_to_try = [m for m in candidate_models if m and not (m in seen_models or seen_models.add(m))]
 
@@ -424,51 +431,20 @@ class OpenRouterService:
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             }
-        try:
-            resp = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers=self._headers(),
-                json={"model": self.text_model, "messages": messages,
-                      "temperature": temperature, "max_tokens": max_tokens},
-                timeout=30,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                content = (data.get("choices", [{}])[0]
-                               .get("message", {}).get("content", ""))
-                return {"success": True, "text": content,
-                        "model": data.get("model", self.text_model),
-                        "usage": data.get("usage", {})}
-
-            logger.warning("OpenRouter %s: %s", resp.status_code, resp.text[:200])
-            return {"success": False,
-                    "error": f"HTTP {resp.status_code}",
-                    "text": "", "model": self.text_model}
-
-        except Exception as exc:
-            logger.error("OpenRouter request failed: %s", exc)
-            return {"success": False, "error": str(exc),
-                    "text": "", "model": self.text_model}
-
-    # ── Job requirement extraction ────────────────────────────────────────────
-
             try:
                 response = requests.post(
                     f"{self.base_url}/chat/completions",
-                    headers=self._get_headers(),
+                    headers=self._headers(),
                     json=payload,
-                    timeout=25,
+                    timeout=20,
                 )
                 if response.status_code == 200:
                     data = response.json()
                     msg = data.get("choices", [{}])[0].get("message", {})
                     content = msg.get("content") or ""
                     import re
-                    # Handle reasoning models where output is stored in reasoning or thinking
                     if not content and msg.get("reasoning"):
-                        raw_reasoning = msg.get("reasoning", "")
-                        # Only use reasoning if it contains an actual answer, otherwise avoid leaking scratchpad
-                        content = raw_reasoning
+                        content = msg.get("reasoning", "")
 
                     if content:
                         content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
@@ -487,18 +463,42 @@ class OpenRouterService:
                     logger.warning(
                         f"OpenRouter model {candidate_model} returned status {response.status_code}, cascading to fallback."
                     )
-                    # If daily account limit on free models is exhausted, cascading to other free models won't help
-                    if "free-models-per-day" in response.text or "free limit" in response.text:
-                        logger.warning("OpenRouter free tier daily quota exhausted across account. Halting free cascade.")
+                    # If daily account limit on free models is exhausted, break immediately to Gemini
+                    if "free-models-per-day" in response.text or "free limit" in response.text or response.status_code == 429:
+                        logger.warning("OpenRouter free tier quota exceeded. Cascading directly to Google Gemini.")
                         break
             except Exception as exc:
                 last_error = str(exc)
-                logger.warning(f"Error calling OpenRouter model {candidate_model}: {exc}, cascading to next model.")
+                logger.warning(f"Error calling OpenRouter model {candidate_model}: {exc}")
+
+        # Cascade immediately to Google Gemini API
+        try:
+            from services.gemini_service import gemini_service
+            if gemini_service.is_configured():
+                logger.info("Routing request to Google Gemini (%s) for live AI inference.", gemini_service.model)
+                gem_res = gemini_service.generate_text(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    conversation_messages=conversation_messages
+                )
+                if gem_res.get("success") and gem_res.get("text"):
+                    return {
+                        "success": True,
+                        "text": gem_res["text"],
+                        "model": gem_res.get("model", f"google/{gemini_service.model}"),
+                        "usage": gem_res.get("usage", {}),
+                    }
+                else:
+                    logger.warning(f"Gemini API returned error: {gem_res.get('error')}")
+        except Exception as gem_exc:
+            logger.warning(f"Failed to route to Gemini: {gem_exc}")
 
         return {
             "success": False,
             "error": last_error,
-            "text": "Fallback response: Upstream model temporarily unavailable or rate-limited.",
+            "text": "Upstream AI models temporarily rate-limited. Please retry shortly.",
             "model": self.text_model,
         }
 
@@ -527,23 +527,6 @@ class OpenRouterService:
         )
 
         llm_result = self.generate_text(
-            prompt=f"Role: {inferred_title}\nDescription / Goal:\n{job_text}",
-            "You are a technical recruiter assistant. Analyze the job description carefully. "
-            "Extract ALL required and preferred technical skills, tools, and technologies. "
-            "Return ONLY valid JSON with exactly these keys: "
-            "'role_title' (string — the job title), "
-            "'summary' (string — 1-2 sentences describing the role), "
-            "'requirements' (array of objects, each with: "
-            "  'skill_name' (string), "
-            "  'category' (one of: language, framework, database, testing, devops, tools, concepts), "
-            "  'importance' ('required' or 'preferred'), "
-            "  'source_excerpt' (short direct quote from the job text)). "
-            "Do NOT wrap output in markdown code fences. "
-            "Do NOT invent skills not mentioned in the job text. "
-            "Extract skills for ANY role type — backend, frontend, mobile, data, ML, security, etc."
-        )
-
-        llm_result = self.generate_text(
             prompt=f"Job Description:\n\n{job_text}",
             system_prompt=system_prompt,
             temperature=0.1,
@@ -552,17 +535,21 @@ class OpenRouterService:
 
         if llm_result.get("success") and llm_result.get("text"):
             try:
+                import re
                 raw_text = llm_result["text"].strip()
-                if raw_text.startswith("```json"):
-                    raw_text = raw_text[7:]
-                if raw_text.startswith("```"):
-                    raw_text = raw_text[3:]
-                if raw_text.endswith("```"):
-                    raw_text = raw_text[:-3]
-                parsed = json.loads(raw_text.strip())
+                fence_match = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', raw_text)
+                if fence_match:
+                    candidate_json = fence_match.group(1).strip()
+                else:
+                    brace_match = re.search(r'(\{[\s\S]*\})', raw_text)
+                    candidate_json = brace_match.group(1).strip() if brace_match else raw_text
+
+                parsed = json.loads(candidate_json)
                 if "requirements" in parsed and len(parsed["requirements"]) > 0:
                     if role_title:
                         parsed["role_title"] = role_title
+                    source_model = llm_result.get("model", "")
+                    parsed.setdefault("extraction_source", f"live_ai_{source_model}" if source_model else "live_ai")
                     return parsed
             except Exception as e:
                 logger.info(f"Could not parse LLM JSON output, using dynamic rule fallback: {e}")
@@ -686,18 +673,8 @@ class OpenRouterService:
             "role_title": final_title,
             "summary": f"Extracted {len(detected_requirements)} verified technical requirements for {final_title}.",
             "requirements": detected_requirements,
+            "extraction_source": "rule_engine"
         }
-                parsed = _clean_llm_json(llm_result["text"])
-                parsed["extraction_source"] = "openrouter"
-                logger.info("OpenRouter extraction succeeded: %d requirements",
-                            len(parsed["requirements"]))
-                return parsed
-            except Exception as exc:
-                logger.info("LLM output parse failed (%s) — falling back to rule engine.", exc)
-
-        # Rule engine fallback
-        logger.info("Using rule engine for extraction.")
-        return _rule_engine_extract(job_text)
 
     # ── Embeddings ────────────────────────────────────────────────────────────
 

@@ -328,6 +328,11 @@ class JobAnalysisAPITests(TestCase):
 
     def setUp(self):
         self.client, self.user = make_client_with_user()
+        from apps.job_analysis.views import _rule_engine_extract
+        patcher = patch("apps.job_analysis.views.openrouter_service.extract_job_requirements",
+                        side_effect=lambda text, **kwargs: _rule_engine_extract(text))
+        self.mock_extract = patcher.start()
+        self.addCleanup(patcher.stop)
 
     # ── Normal cases ──────────────────────────────────────────────────────────
 

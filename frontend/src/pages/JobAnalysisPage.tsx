@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import type { FormEvent } from 'react';
-import { Sparkles, ArrowRight, Image as ImageIcon, Calendar, Clock, Compass, Briefcase, Plus, Trash2, CheckCircle2 } from 'lucide-react';
+import { Sparkles, ArrowRight, Image as ImageIcon, Calendar, Clock, Compass, Briefcase, Plus, Trash2, CheckCircle2, X } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import { skillGapService } from '../services/skillGapService';
 import type { Requirement, ProductMode, SkillProfileSummary } from '../types';
 
 interface JobAnalysisPageProps {
@@ -9,6 +11,8 @@ interface JobAnalysisPageProps {
 }
 
 export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) {
+  const { user } = useAuth();
+  const currentUserId = user ? String(user.id) : 'demo_user';
   const [mode, setMode] = useState<ProductMode>('job_specific');
 
   // Mode A fields (Job-Specific & Deadline-Aware)
@@ -22,12 +26,54 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
   const [goalType, setGoalType] = useState<'career_role' | 'skill_goal'>('career_role');
   const [availableProfiles, setAvailableProfiles] = useState<SkillProfileSummary[]>([]);
 
-  // Load supported profiles once on mount
+  const [restoredAnalysisTitle, setRestoredAnalysisTitle] = useState<string | null>(null);
+
+  // Load supported profiles and existing analysis on mount
   useEffect(() => {
     api.getSkillProfiles()
       .then(setAvailableProfiles)
       .catch(() => {/* non-critical — user can still type freely */});
-  }, []);
+
+    // Populate recent real requirements if analysis exists in backend
+    api.getJobAnalyses(currentUserId)
+      .then((analyses) => {
+        if (analyses && analyses.length > 0) {
+          const latest = analyses[0];
+          if (latest.requirements && latest.requirements.length > 0) {
+            setExtractedRequirements(
+              latest.requirements.map(r => ({
+                id: r.requirement_id || r.id || `req_${Date.now()}`,
+                skill_name: r.skill_name,
+                category: r.category,
+                importance: r.importance,
+                source_excerpt: r.source_excerpt,
+                user_confirmed: true,
+              }))
+            );
+            setActiveAnalysisId(latest.analysis_id);
+            setRestoredAnalysisTitle(latest.role_title || 'Previous Job Posting');
+            skillGapService.setSelectedRole(latest.analysis_id);
+            if (latest.mode) setMode(latest.mode as any);
+            if (latest.job_text) setJobText(latest.job_text);
+            if (latest.days_remaining) setDaysRemaining(latest.days_remaining);
+            if (latest.study_hours_per_week) setStudyHoursPerWeek(latest.study_hours_per_week);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [currentUserId]);
+
+  const handleResetForm = () => {
+    setJobText('');
+    setJobImage(null);
+    setExtractedRequirements([]);
+    setActiveAnalysisId(null);
+    setRestoredAnalysisTitle(null);
+    setExtractionWarning(null);
+    setExtractionError(null);
+    setDaysRemaining(14);
+    setStudyHoursPerWeek(14);
+  };
 
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [isConfirming, setIsConfirming] = useState<boolean>(false);
@@ -36,13 +82,8 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
   const [extractionError, setExtractionError] = useState<string | null>(null);
 
   // Editable requirements (human review - Section 6, F5)
-  // Default sample requirements are shown until the user runs a real extraction.
-  const [extractedRequirements, setExtractedRequirements] = useState<Requirement[]>([
-    { id: 'req_1', skill_name: 'Python', category: 'language', importance: 'required', source_excerpt: 'Proficiency in Python and familiarity with web frameworks' },
-    { id: 'req_2', skill_name: 'Django REST Framework', category: 'framework', importance: 'required', source_excerpt: 'Design, build, and maintain robust RESTful APIs in Python' },
-    { id: 'req_3', skill_name: 'API Testing', category: 'testing', importance: 'required', source_excerpt: 'Write unit, integration, and end-to-end API tests' },
-    { id: 'req_4', skill_name: 'PostgreSQL', category: 'database', importance: 'required', source_excerpt: 'Write and optimize database queries using PostgreSQL' },
-  ]);
+  // Initially empty until the user runs a real extraction or adds target skills.
+  const [extractedRequirements, setExtractedRequirements] = useState<Requirement[]>([]);
 
   const [newSkillName, setNewSkillName] = useState('');
   const [newSkillCategory, setNewSkillCategory] = useState('framework');
@@ -61,9 +102,12 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
         const formData = new FormData();
         if (jobText) formData.append('job_text', jobText);
         if (jobImage) formData.append('job_image', jobImage);
+        if (jobText && jobText.trim().length < 80 && !jobText.includes('\n')) {
+          formData.append('role_title', jobText.trim());
+        }
         formData.append('days_remaining', String(daysRemaining));
         formData.append('study_hours_per_week', String(studyHoursPerWeek));
-        formData.append('user_id', 'usr_demo_001');
+        formData.append('user_id', currentUserId);
 
         const result = await api.submitJobAnalysis(formData);
 
@@ -80,14 +124,15 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
             }))
           );
         }
-        // Store the analysis_id so Confirm can call PATCH /requirements/
+        // Store the analysis_id so Confirm can call PATCH /requirements/ and select role
         if (result.analysis_id) {
           setActiveAnalysisId(result.analysis_id);
+          skillGapService.setSelectedRole(result.analysis_id);
         }
       } else {
         // Mode B: goal-based — response includes requirements from the matched profile
         const result = await api.submitGoal({
-          user_id: 'usr_demo_001',
+          user_id: currentUserId,
           goal_type: goalType,
           goal_text: goalText,
           days_remaining: daysRemaining,
@@ -97,6 +142,7 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
         // The goal response contains requirements from the matched profile
         const goalResult = result as unknown as {
           goal: { goal_id: string };
+          analysis_id?: string;
           requirements: Array<{ skill_name: string; category: string; importance: string; source_excerpt: string }>;
           warning?: string;
         };
@@ -113,6 +159,10 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
             }))
           );
         }
+        if (goalResult.analysis_id) {
+          setActiveAnalysisId(goalResult.analysis_id);
+          skillGapService.setSelectedRole(goalResult.analysis_id);
+        }
         if (goalResult.warning) {
           setExtractionWarning(goalResult.warning);
         }
@@ -128,7 +178,10 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
 
   // Confirm button: sends the edited requirements list back to the backend
   const handleConfirmRequirements = async () => {
-    if (!activeAnalysisId) return; // Goal mode or not yet extracted — skip PATCH
+    if (!activeAnalysisId) {
+      setActiveTab('gaps');
+      return;
+    }
     setIsConfirming(true);
     try {
       await api.updateRequirements(
@@ -141,11 +194,12 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
           source_excerpt: r.source_excerpt,
         }))
       );
+      skillGapService.setSelectedRole(activeAnalysisId);
       // Navigate to the skill gap page
       setActiveTab('gaps');
     } catch (err) {
       console.error("Failed to confirm requirements:", err);
-      // Still navigate — the user's local list is valid even if the PATCH failed
+      skillGapService.setSelectedRole(activeAnalysisId);
       setActiveTab('gaps');
     } finally {
       setIsConfirming(false);
@@ -221,18 +275,46 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
                   <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
                   <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Job Description & Deadline Setup</h2>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setJobText("We are seeking a Junior Backend Developer to build and maintain RESTful web APIs using Python, Django REST Framework, and PostgreSQL. Requirements include automated API unit and integration testing, basic SQL query optimization, and clean Git workflows.");
-                    setDaysRemaining(14);
-                    setStudyHoursPerWeek(14);
-                  }}
-                  className="text-xs text-indigo-400 hover:underline font-medium"
-                >
-                  Fill Sample Posting
-                </button>
+                <div className="flex items-center gap-3">
+                  {(jobText || extractedRequirements.length > 0) && (
+                    <button
+                      type="button"
+                      onClick={handleResetForm}
+                      className="text-xs text-rose-500 hover:text-rose-400 font-medium hover:underline transition-colors"
+                    >
+                      Clear / Start New
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJobText("We are seeking a Junior Backend Developer to build and maintain RESTful web APIs using Python, Django REST Framework, and PostgreSQL. Requirements include automated API unit and integration testing, basic SQL query optimization, and clean Git workflows.");
+                      setDaysRemaining(14);
+                      setStudyHoursPerWeek(14);
+                      setRestoredAnalysisTitle(null);
+                    }}
+                    className="text-xs text-indigo-400 hover:underline font-medium"
+                  >
+                    Fill Sample Posting
+                  </button>
+                </div>
               </div>
+
+              {restoredAnalysisTitle && (
+                <div className="flex items-center justify-between text-xs px-3 py-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 text-indigo-700 dark:text-indigo-300">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Restored previous session for <strong>{restoredAnalysisTitle}</strong></span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetForm}
+                    className="underline hover:text-indigo-900 dark:hover:text-white"
+                  >
+                    Start fresh
+                  </button>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">
@@ -292,16 +374,49 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
               </div>
 
               {/* Optional Job Screenshot Upload */}
-              <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950/50 p-3 space-y-1.5">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
-                  <ImageIcon className="w-3.5 h-3.5 text-cyan-400" /> Optional: Upload Job Screenshot
+              <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950/50 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
+                    <ImageIcon className="w-3.5 h-3.5 text-cyan-400" /> Optional: Upload Job Screenshot
+                  </div>
+                  {jobImage && (
+                    <button
+                      type="button"
+                      onClick={() => setJobImage(null)}
+                      className="flex items-center gap-1 text-[11px] font-semibold text-rose-400 hover:text-rose-300 transition-colors"
+                      title="Cancel uploaded file"
+                    >
+                      <X className="w-3 h-3" />
+                      <span>Cancel</span>
+                    </button>
+                  )}
                 </div>
-                <input
-                  type="file"
-                  accept="image/*,.pdf"
-                  onChange={(e) => setJobImage(e.target.files ? e.target.files[0] : null)}
-                  className="block w-full text-xs text-slate-400 file:mr-3 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[11px] file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700"
-                />
+                {!jobImage ? (
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={(e) => setJobImage(e.target.files ? e.target.files[0] : null)}
+                    className="block w-full text-xs text-slate-400 file:mr-3 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[11px] file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer"
+                  />
+                ) : (
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900 border border-slate-800 text-xs">
+                    <div className="flex items-center gap-2 text-slate-200 truncate">
+                      <ImageIcon className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <span className="truncate font-medium">{jobImage.name}</span>
+                      <span className="text-[10px] text-slate-400 shrink-0">
+                        ({(jobImage.size / 1024).toFixed(1)} KB)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setJobImage(null)}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 border border-rose-900/50 transition-colors ml-2 shrink-0"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>Remove</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           ) : (
@@ -425,7 +540,7 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
             {isExtracting
               ? 'Analyzing with AI (OpenRouter → Rules)...'
               : mode === 'job_specific'
-              ? 'Extract Requirements & Setup Feasibility'
+              ? 'Extract Requirements'
               : 'Map Goal to Target Profile'}
           </button>
         </div>
@@ -464,33 +579,43 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
 
           {/* List of Target Requirements */}
           <div className="space-y-2.5 overflow-y-auto max-h-[340px] pr-1">
-            {extractedRequirements.map((req) => (
-              <div key={req.id} className="rounded-lg border border-slate-800 bg-slate-950/70 p-3 space-y-1.5 group">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-indigo-400" />
-                    <span className="text-sm font-semibold text-white">{req.skill_name}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/30">
-                      {req.importance}
-                    </span>
-                    <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-400">
-                      {req.category}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => removeRequirement(req.id)}
-                      className="text-slate-500 hover:text-rose-400 transition-colors p-1"
-                      title="Remove requirement"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-                <p className="text-xs text-slate-400 italic">"{req.source_excerpt}"</p>
+            {extractedRequirements.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-800 bg-slate-950/30 p-8 text-center space-y-2">
+                <Sparkles className="w-7 h-7 mx-auto text-indigo-400/50" />
+                <p className="text-xs font-semibold text-slate-300">No Target Skills Extracted Yet</p>
+                <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
+                  Provide a job description, screenshot, or career goal on the left and click <strong>Extract Requirements</strong> to review skills here.
+                </p>
               </div>
-            ))}
+            ) : (
+              extractedRequirements.map((req) => (
+                <div key={req.id} className="rounded-lg border border-slate-800 bg-slate-950/70 p-3 space-y-1.5 group">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-indigo-400" />
+                      <span className="text-sm font-semibold text-white">{req.skill_name}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/30">
+                        {req.importance}
+                      </span>
+                      <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-slate-800 text-slate-400">
+                        {req.category}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeRequirement(req.id)}
+                        className="text-slate-500 hover:text-rose-400 transition-colors p-1"
+                        title="Remove requirement"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-400 italic">"{req.source_excerpt}"</p>
+                </div>
+              ))
+            )}
           </div>
 
           {/* Add Custom Requirement Box */}

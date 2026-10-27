@@ -42,6 +42,9 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
       ...options
     });
     if (!res.ok) {
+      if (res.status === 401 && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('skillbridge_session_expired'));
+      }
       throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     }
     return await res.json();
@@ -149,6 +152,37 @@ export const api = {
 
 
   // Member 4: Assessment, Roadmap, Deadline Feasibility & Application Checklist
+  generateSyllabus: (data: {
+    skill_name: string;
+    target_role?: string;
+    project_title?: string;
+    target_deliverables?: string[];
+    experience_level?: string;
+    learning_preference?: string;
+  }): Promise<{
+    title: string;
+    skill_name: string;
+    experience_level: string;
+    syllabus_steps: Array<{
+      step_number: number;
+      field_key: 'valid_test' | 'invalid_test' | 'auth_test' | 'assertions' | 'explanation';
+      title: string;
+      subtitle: string;
+      target_file?: string;
+      points: number;
+      starter_code: string;
+    }>;
+    rubric: Array<{ id: string; name: string; pts: number; desc: string }>;
+    concept_animation: {
+      type: string;
+      title: string;
+      description: string;
+      nodes: Array<{ id: string; name: string; detail: string; icon: string; status_text: string }>;
+      steps: string[];
+    };
+  }> =>
+    apiFetch('/assessments/generate-syllabus/', { method: 'POST', body: JSON.stringify(data) }),
+
   getAssessment: (taskId: string): Promise<AssessmentTask> =>
     apiFetch<AssessmentTask>(`/assessments/${taskId}/`),
 

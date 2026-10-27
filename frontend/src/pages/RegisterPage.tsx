@@ -1,12 +1,14 @@
 import { useState, type FormEvent } from 'react';
-import { Sparkles, Eye, EyeOff, UserPlus } from 'lucide-react';
+import { Sparkles, Eye, EyeOff, UserPlus, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface RegisterPageProps {
   onSwitchToLogin: () => void;
+  onClose?: () => void;
+  promptMessage?: string | null;
 }
 
-export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
+export default function RegisterPage({ onSwitchToLogin, onClose, promptMessage }: RegisterPageProps) {
   const { register } = useAuth();
 
   const [fullName, setFullName] = useState('');
@@ -45,7 +47,16 @@ export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#f8f9fa] dark:bg-[#0b0f17] px-4 py-8">
+    <div className="min-h-screen flex items-center justify-center bg-[#f8f9fa] dark:bg-[#0b0f17] px-4 py-8 relative">
+      {onClose && (
+        <button
+          onClick={onClose}
+          className="absolute top-6 right-6 p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors"
+          title="Return to Overview"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      )}
       <div className="w-full max-w-sm">
 
         {/* Logo */}
@@ -62,6 +73,14 @@ export default function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
             </p>
           </div>
         </div>
+
+        {/* Prompt notification banner */}
+        {promptMessage && (
+          <div className="mb-4 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 p-3.5 text-xs text-indigo-700 dark:text-indigo-300 flex items-center gap-2.5 shadow-xs">
+            <Sparkles className="w-4 h-4 shrink-0 text-indigo-500 animate-pulse" />
+            <span className="font-medium">{promptMessage}</span>
+          </div>
+        )}
 
         {/* Card */}
         <div className="bg-white dark:bg-[#0e131f] rounded-2xl border border-slate-200 dark:border-slate-800 p-7 shadow-sm space-y-4">

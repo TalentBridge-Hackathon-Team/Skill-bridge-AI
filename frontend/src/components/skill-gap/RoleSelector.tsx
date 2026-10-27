@@ -122,7 +122,7 @@ export default function RoleSelector({
             type="button"
             onClick={onNavigateToJDMatcher}
             className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/80 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors shadow-2xs"
-            title="Paste or upload a new vacancy in Member 2's JD Matcher"
+            title="Paste or upload a new vacancy in Job & Goal Analysis"
           >
             <Briefcase className="w-3.5 h-3.5 text-indigo-500" />
             <span>+ Analyze New Vacancy in JD Matcher</span>
@@ -377,8 +377,8 @@ export default function RoleSelector({
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mb-4">
             {activeModeFilter === 'job_specific'
-              ? "Mode A matches your verified skills and evidence against actual job descriptions. Paste a job posting or upload an image in Member 2's JD Matcher."
-              : 'Mode B lets you define custom career transition goals, milestone horizons, and learning aspirations.'}
+              ? "Target Job Preparation matches your verified skills and evidence against actual job descriptions. Paste a job posting or upload an image in the Job & Goal Analysis tab."
+              : 'Career Goal Growth lets you define custom career transition goals, milestone horizons, and learning aspirations.'}
           </p>
           {activeModeFilter === 'job_specific' ? (
             <button
@@ -387,7 +387,7 @@ export default function RoleSelector({
               className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-all shadow-xs"
             >
               <Briefcase className="w-3.5 h-3.5" />
-              <span>Open JD Matcher (Member 2)</span>
+              <span>Open Job & Goal Analysis</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           ) : (

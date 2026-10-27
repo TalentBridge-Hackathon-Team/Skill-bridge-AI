@@ -1,6 +1,7 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
 from django.utils import timezone
 from .models import RoadmapTask, ApplicationChecklist
 from .serializers import RoadmapTaskSerializer, ApplicationChecklistSerializer
@@ -138,6 +139,7 @@ class RoadmapListView(APIView):
     GET /api/roadmap/
     Returns recommended roadmap tasks, application checklist, effort metrics, and deadline feasibility.
     """
+    permission_classes = [AllowAny]
     def get(self, request):
         user_id = request.query_params.get("user_id", "usr_demo_001")
         deadline_days = int(request.query_params.get("deadline_days", 14))
@@ -217,6 +219,7 @@ class RoadmapRecalculateView(APIView):
     Dynamically recalculates roadmap burn-down, feasibility, and task pacing based on
     updated user constraints (e.g. deadline changes, hours/day availability).
     """
+    permission_classes = [AllowAny]
     def post(self, request):
         user_id = request.data.get("user_id", "demo_user")
         deadline_days = int(request.data.get("deadline_days", 14))
@@ -262,6 +265,7 @@ class RoadmapTaskDetailView(APIView):
     PATCH /api/roadmap/{task_id}/
     Updates task progress (pending -> in_progress -> completed).
     """
+    permission_classes = [AllowAny]
     def patch(self, request, task_id):
         try:
             task = RoadmapTask.objects.get(task_id=task_id)

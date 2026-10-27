@@ -27,8 +27,14 @@ import {
   Bot,
   User,
   HardDrive,
-  Copy
+  Copy,
+  Terminal,
+  Server,
+  Workflow,
+  FileCode
 } from 'lucide-react';
+import { api } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { skillGapService } from '../services/skillGapService';
 import type { TargetRoleOption } from '../services/mockSkillGapData';
 import type { TraceableMatchResult } from '../utils/skillGapCalculations';
@@ -182,7 +188,7 @@ const SKILL_TASK_PRESETS: Record<string, {
       explanation: 'Basic vector query.'
     },
     flowSteps: [
-      { step: 1, title: '1. Query Vectorization', detail: 'OpenRouter / Bedrock converts candidate query into 2048-dim dense vector.', visual_icon: 'cpu', highlight: 'Dense floating-point array generation.' },
+      { step: 1, title: '1. Query Vectorization', detail: 'OpenRouter / Gemini converts candidate query into 2048-dim dense vector.', visual_icon: 'cpu', highlight: 'Dense floating-point array generation.' },
       { step: 2, title: '2. HNSW Graph Traversal', detail: 'PostgreSQL traverses hierarchical navigable small world graph.', visual_icon: 'search', highlight: 'Avoids brute-force O(N) scan.' },
       { step: 3, title: '3. Hybrid Filter Application', detail: 'Applies relational WHERE user_id = $1 predicate concurrently.', visual_icon: 'filter', highlight: 'Combines relational accuracy with vector semantic search.' },
       { step: 4, title: '4. Ranked Similarity Output', detail: 'Returns top-k documents sorted by cosine distance (<=>).', visual_icon: 'check-circle', highlight: 'Top semantic matches dispatched to LLM context.' },
@@ -258,10 +264,29 @@ const SKILL_TASK_PRESETS: Record<string, {
   }
 };
 
+export interface ConceptAnimationNode {
+  id: number | string;
+  title?: string;
+  name?: string;
+  subtitle?: string;
+  detail?: string;
+  icon?: string;
+  state?: string;
+  status_text?: string;
+}
+
+export interface ConceptAnimationStep {
+  step?: number;
+  description?: string;
+  active_node?: number | string;
+}
+
 export interface ConceptAnimationData {
-  type: 'boundary_check' | 'index_btree_search' | 'concurrency_lock' | 'pipeline_flow' | 'vector_search' | 'ml_training_loop';
+  type: 'boundary_check' | 'index_btree_search' | 'concurrency_lock' | 'pipeline_flow' | 'vector_search' | 'ml_training_loop' | 'custom_pipeline' | string;
   title: string;
   description: string;
+  nodes?: ConceptAnimationNode[];
+  steps?: Array<ConceptAnimationStep | string>;
 }
 
 export function detectSkillDomain(skillName: string, message: string = ''): 'ml_ai' | 'vector_ai' | 'database' | 'devops_cloud' | 'security' | 'frontend' | 'backend_api' | 'algorithms' | 'general_engineering' {
@@ -347,6 +372,16 @@ export function getStarterScaffolding(skillName: string): AssessmentSubmission {
     };
   }
 
+  if (domain === 'frontend' || s.includes('typescript') || s.includes('ts') || s.includes('express') || s.includes('node') || s.includes('zod') || s.includes('task')) {
+    return {
+      valid_test: `// Step 1: Define Task Model & Validation Interfaces in src/models/task.ts\nimport { z } from 'zod';\n\n// TODO: Define TaskPriorityEnum, TaskStatusEnum, and CreateTaskSchema\n`,
+      invalid_test: `// Step 2: Implement Type-Safe Task Controller in src/controllers/taskController.ts\nimport { Request, Response } from 'express';\n\n// TODO: Implement CRUD actions with Zod safeParse validation\n`,
+      auth_test: `// Step 3: Configure Express Routes in src/routes/taskRoutes.ts\nimport { Router } from 'express';\n\n// TODO: Map routes to controller actions\n`,
+      assertions: `// Step 4: Write Contract Assertions in src/__tests__/task.test.ts\nimport request from 'supertest';\n\n// TODO: Assert HTTP 201 Created and HTTP 400 Bad Request\n`,
+      explanation: `Explain your approach to compile-time static typing and runtime Zod boundary validation.`
+    };
+  }
+
   return {
     valid_test: `# Step 1: Core Implementation for ${skillName}\n# Implement the core business logic with modular architecture\n`,
     invalid_test: `# Step 2: Input Validation & Boundary Handling\n# Guard against invalid inputs, empty payloads, and exception boundaries\n`,
@@ -356,11 +391,217 @@ export function getStarterScaffolding(skillName: string): AssessmentSubmission {
   };
 }
 
+export function resolveDynamicConceptAnimation(
+  skill: string,
+  contextQuery?: string,
+  _project?: any,
+  incomingAnim?: ConceptAnimationData | null
+): ConceptAnimationData {
+  if (incomingAnim?.nodes && incomingAnim.nodes.length > 0) {
+    return incomingAnim;
+  }
+
+  const s = (skill || '').toLowerCase();
+  const q = (contextQuery || '').toLowerCase();
+  const combined = `${s} ${q}`;
+
+  // 1. TypeScript / JavaScript / Frontend / Full Stack
+  if (combined.includes('typescript') || combined.includes('ts') || combined.includes('javascript') || combined.includes('zod') || combined.includes('interface') || combined.includes('z.infer')) {
+    if (combined.includes('zod') || combined.includes('z.infer') || combined.includes('validat') || combined.includes('schema') || combined.includes('safeparse') || combined.includes('boundary')) {
+      return {
+        type: 'custom_pipeline',
+        title: incomingAnim?.title || `Interactive Concept Animation: ${skill || 'TypeScript'} Runtime Schema Validation & Type Inference`,
+        description: incomingAnim?.description || `Watch how untrusted network payloads are verified at runtime via Zod schemas while maintaining static TypeScript type safety.`,
+        nodes: [
+          { id: '1', title: 'Raw Client Payload', subtitle: 'Untrusted JSON input', state: 'Unverified Shape', icon: 'Code' },
+          { id: '2', title: 'Zod Schema (z.infer)', subtitle: 'Runtime Type Inference Contract', state: 'Inferring Types', icon: 'Layers' },
+          { id: '3', title: 'safeParse() Perimeter', subtitle: 'Boundary Validation Gate', state: 'Validating Invariants', icon: 'ShieldCheck' },
+          { id: '4', title: 'Type-Safe Domain Handler', subtitle: '100% Type Sound Entity', state: 'Guaranteed Clean State', icon: 'CheckCircle2' }
+        ],
+        steps: [
+          'Step 1: Client submits raw untrusted JSON payload over the HTTP network boundary.',
+          'Step 2: Zod schema (z.infer<typeof Schema>) dynamically infers compile-time TypeScript types from runtime schema contracts.',
+          'Step 3: safeParse() tests input fields, formats, and non-empty constraints without throwing unhandled exceptions.',
+          'Step 4: Business logic controller receives guaranteed type-safe domain entities, eliminating runtime TypeError bugs.'
+        ]
+      };
+    }
+    return {
+      type: 'custom_pipeline',
+      title: incomingAnim?.title || `Interactive Concept Animation: ${skill || 'TypeScript'} Execution & Transpilation Flow`,
+      description: incomingAnim?.description || `Watch how TypeScript source code undergoes static AST analysis and type erasure to produce an optimized JavaScript runtime bundle.`,
+      nodes: [
+        { id: '1', title: 'Source Code (.ts)', subtitle: 'Interface & Generic Contracts', state: 'Strict mode active', icon: 'Code' },
+        { id: '2', title: 'AST & Type Checker', subtitle: 'Compile-time Type Guard', state: 'Proving type soundness', icon: 'ShieldCheck' },
+        { id: '3', title: 'Transpiler (tsc)', subtitle: 'Type Erasure & AST Lowering', state: 'Erasing type annotations', icon: 'Cpu' },
+        { id: '4', title: 'Production Bundle (.js)', subtitle: 'Zero Runtime Overhead', state: 'V8 JIT Optimized', icon: 'CheckCircle2' }
+      ],
+      steps: [
+        'Step 1: Developer writes strict TypeScript code with types, interfaces, and generics.',
+        'Step 2: TypeScript type checker builds Abstract Syntax Tree and proves type soundness before execution.',
+        'Step 3: Transpiler strips type annotations entirely (type erasure), emitting standard ECMAScript.',
+        'Step 4: Node.js V8 engine executes lightweight JavaScript with zero runtime memory penalty.'
+      ]
+    };
+  }
+
+  // 2. PyTorch / ML / Deep Learning
+  if (combined.includes('pytorch') || combined.includes('torch') || combined.includes('tensor') || combined.includes('gradient') || combined.includes('loss') || combined.includes('backprop') || combined.includes('neural')) {
+    return {
+      type: 'custom_pipeline',
+      title: incomingAnim?.title || `Interactive Deep Learning Flow: ${skill} Forward & Backward Pass`,
+      description: incomingAnim?.description || `Visualize how batch tensors propagate forward through layers, calculate loss, and update weights via Autograd.`,
+      nodes: [
+        { id: '1', title: '1. DataLoader', subtitle: 'Pinned host memory batches', state: 'Tensors [B, D]', icon: 'Layers' },
+        { id: '2', title: '2. Forward Pass', subtitle: 'Layer transforms & activations', state: 'Predictions Logits', icon: 'Cpu' },
+        { id: '3', title: '3. Loss Criterion', subtitle: 'loss.item() graph detachment', state: 'Backprop Graph Active', icon: 'GitBranch' },
+        { id: '4', title: '4. Autograd ∇W', subtitle: 'Weight adjustments & zero_grad()', state: 'Loss Converged', icon: 'CheckCircle2' }
+      ],
+      steps: [
+        'Step 1: DataLoader prepares batch tensors [B, In_Features] and transfers them to the compute device.',
+        'Step 2: Input propagates through nn.Module layers and activation functions to compute prediction logits.',
+        'Step 3: Criterion evaluates scalar penalty against ground truth labels; loss.item() detaches graph to prevent CUDA leaks.',
+        'Step 4: Autograd computes gradient DAG (loss.backward()), optimizer updates weights, and zero_grad() clears buffers.'
+      ]
+    };
+  }
+
+  // 3. PostgreSQL / SQL / Relational Databases
+  if (combined.includes('postgres') || combined.includes('sql') || combined.includes('index') || combined.includes('btree') || combined.includes('query')) {
+    return {
+      type: 'custom_pipeline',
+      title: incomingAnim?.title || `Interactive Concept Animation: ${skill} B-Tree Index Traversal vs Scan`,
+      description: incomingAnim?.description || `See how B-Tree index pointers eliminate disk I/O by navigating logarithmic tree branches.`,
+      nodes: [
+        { id: '1', title: 'Connection Pool', subtitle: 'pgbouncer session checkout', state: 'Active Pool Session', icon: 'Database' },
+        { id: '2', title: 'Query Optimizer', subtitle: 'Cost estimation & index plan', state: 'B-Tree Index Chosen', icon: 'Cpu' },
+        { id: '3', title: 'B-Tree Branch Hop', subtitle: 'Logarithmic descent O(log N)', state: 'Direct Leaf Seek', icon: 'GitBranch' },
+        { id: '4', title: 'WAL & ACID Commit', subtitle: 'Direct heap tuple retrieval', state: '1.4ms (0 Table IO)', icon: 'CheckCircle2' }
+      ],
+      steps: [
+        'Step 1: Client queries database through managed connection pool with parameterized query.',
+        'Step 2: PostgreSQL query optimizer analyzes column statistics and selects B-Tree index scan over sequential scan.',
+        'Step 3: Query engine descends root-to-leaf index blocks in 3 memory hops, bypassing 1M table rows.',
+        'Step 4: Target row tuple is fetched directly from heap memory with zero disk bottleneck.'
+      ]
+    };
+  }
+
+  // 4. Vector Search & Embeddings
+  if (combined.includes('vector') || combined.includes('embedding') || combined.includes('hnsw') || combined.includes('cosine')) {
+    return {
+      type: 'custom_pipeline',
+      title: incomingAnim?.title || `Interactive Vector Search: 2048-Dim Embedding & HNSW Cosine Distance`,
+      description: incomingAnim?.description || `Watch how a query vector traverses the HNSW graph to find nearest neighbors in sub-millisecond time.`,
+      nodes: [
+        { id: '1', title: 'Query Tokenizer', subtitle: 'Chunking & token encoding', state: 'Tokens ready', icon: 'Code' },
+        { id: '2', title: 'Embedding Model', subtitle: 'Maps to 2048-dim vector', state: 'Unit vector [2048]', icon: 'Cpu' },
+        { id: '3', title: 'HNSW Graph Traversal', subtitle: 'Multi-layer proximity hop', state: 'Sparse layer seek', icon: 'GitBranch' },
+        { id: '4', title: 'Cosine Ranker', subtitle: 'Top-K semantic matches', state: 'Sub-5ms Latency', icon: 'CheckCircle2' }
+      ],
+      steps: [
+        'Step 1: User query string is tokenized and sanitized into context chunks.',
+        'Step 2: Dense embedding model maps semantic query into normalized 2048-dimensional vector space.',
+        'Step 3: HNSW index performs logarithmic graph hops across sparse layers to isolate nearest neighbor clusters.',
+        'Step 4: Cosine distance ranking retrieves top-K semantic document chunks in under 5ms.'
+      ]
+    };
+  }
+
+  // 5. Concurrency & Locks
+  if (combined.includes('lock') || combined.includes('concurrent') || combined.includes('race') || combined.includes('mutex') || combined.includes('transaction')) {
+    return {
+      type: 'custom_pipeline',
+      title: incomingAnim?.title || `Interactive Concept Animation: ${skill} Concurrency, Mutex & Row Locks`,
+      description: incomingAnim?.description || `Visualize what happens when two threads hit conflicting state at the exact same millisecond.`,
+      nodes: [
+        { id: '1', title: 'Parallel Invocations', subtitle: 'Two threads clash at 00:00.001', state: 'Concurrent Request', icon: 'User' },
+        { id: '2', title: 'Row Lock Perimeter', subtitle: 'SELECT ... FOR UPDATE lock', state: 'Thread A Lock Held', icon: 'ShieldCheck' },
+        { id: '3', title: 'Mutex Wait Boundary', subtitle: 'Thread B safely isolated', state: 'Queued (No Dirty Read)', icon: 'Layers' },
+        { id: '4', title: 'Atomic Commit', subtitle: 'Atomic release & clean resume', state: 'Zero Race Conditions', icon: 'CheckCircle2' }
+      ],
+      steps: [
+        'Step 1: Two client requests execute concurrent mutations against the exact same record simultaneously.',
+        'Step 2: Thread A acquires an exclusive row lock via SELECT ... FOR UPDATE within a transaction.',
+        'Step 3: Thread B is held at the mutex boundary, preventing lost updates and dirty reads.',
+        'Step 4: Thread A commits changes atomically; Thread B resumes against clean, consistent state.'
+      ]
+    };
+  }
+
+  // 6. Docker / DevOps / Cloud Pipelines
+  if (combined.includes('docker') || combined.includes('container') || combined.includes('pipeline') || combined.includes('aws') || combined.includes('s3') || combined.includes('sqs')) {
+    return {
+      type: 'custom_pipeline',
+      title: incomingAnim?.title || `Interactive Concept Animation: ${skill} Container & Pipeline Flow`,
+      description: incomingAnim?.description || `Visual walkthrough of container build, security scans, and runtime execution for ${skill}.`,
+      nodes: [
+        { id: '1', title: 'Dockerfile Spec', subtitle: 'Multi-stage build definition', state: 'Minimal alpine base', icon: 'FileCode' },
+        { id: '2', title: 'BuildKit Layer Cache', subtitle: 'Content-addressable hashes', state: 'Cache hit verified', icon: 'Layers' },
+        { id: '3', title: 'Non-Root Security Scan', subtitle: 'User privilege & CVE probe', state: 'USER nonroot audit', icon: 'ShieldCheck' },
+        { id: '4', title: 'Isolated Container', subtitle: 'Namespace & cgroup sandbox', state: 'Runtime Healthy', icon: 'CheckCircle2' }
+      ],
+      steps: [
+        `Step 1: Builder reads Dockerfile multi-stage instructions and source context.`,
+        `Step 2: BuildKit verifies content hashes and reuses cached intermediate layers.`,
+        `Step 3: Security audit enforces non-root execution and verifies boundary healthchecks.`,
+        `Step 4: Daemon runs the container in an isolated cgroup/namespace sandbox.`
+      ]
+    };
+  }
+
+  // 7. Universal Skill Fallback (4 distinct nodes + 4 steps)
+  return {
+    type: 'custom_pipeline',
+    title: incomingAnim?.title || `Interactive Concept Animation: ${skill} Execution Pipeline`,
+    description: incomingAnim?.description || `Visual walkthrough of input contract verification, perimeter guards, and domain execution for ${skill}.`,
+    nodes: [
+      { id: '1', title: 'Input Contract', subtitle: `Inbound ${skill} payload`, state: 'Packet Ingress', icon: 'Code' },
+      { id: '2', title: 'Perimeter Guard', subtitle: 'Validation & sanitization checks', state: 'Validating Invariants', icon: 'ShieldCheck' },
+      { id: '3', title: 'Core Logic Engine', subtitle: `Domain mutations in ${skill}`, state: 'Executing Operations', icon: 'Cpu' },
+      { id: '4', title: 'Persisted Output', subtitle: 'Verified contracts & storage', state: 'Committed Safely', icon: 'CheckCircle2' }
+    ],
+    steps: [
+      `Step 1: Inbound payload reaches the ${skill} service boundary.`,
+      `Step 2: Perimeter guard validates schemas, constraints, and credentials before processing.`,
+      `Step 3: Core ${skill} business logic executes operations against application state.`,
+      `Step 4: Final response passes contract assertions and state is safely persisted.`
+    ]
+  };
+}
+
+function DynamicNodeIcon({ iconName }: { iconName?: string }) {
+  const name = (iconName || '').toLowerCase();
+  if (name.includes('code') || name.includes('file')) return <Code className="w-3.5 h-3.5" />;
+  if (name.includes('shield') || name.includes('lock') || name.includes('auth') || name.includes('security')) return <ShieldCheck className="w-3.5 h-3.5" />;
+  if (name.includes('cpu') || name.includes('compiler') || name.includes('proc')) return <Cpu className="w-3.5 h-3.5" />;
+  if (name.includes('db') || name.includes('data') || name.includes('sql') || name.includes('postgres')) return <Database className="w-3.5 h-3.5" />;
+  if (name.includes('git') || name.includes('branch') || name.includes('repo')) return <GitBranch className="w-3.5 h-3.5" />;
+  if (name.includes('layer') || name.includes('container') || name.includes('docker') || name.includes('queue')) return <Layers className="w-3.5 h-3.5" />;
+  if (name.includes('zap') || name.includes('event') || name.includes('fast')) return <Zap className="w-3.5 h-3.5" />;
+  if (name.includes('term') || name.includes('cli') || name.includes('bash') || name.includes('shell')) return <Terminal className="w-3.5 h-3.5" />;
+  if (name.includes('serv') || name.includes('api') || name.includes('http') || name.includes('host')) return <Server className="w-3.5 h-3.5" />;
+  if (name.includes('flow') || name.includes('pipeline') || name.includes('work')) return <Workflow className="w-3.5 h-3.5" />;
+  if (name.includes('check') || name.includes('valid') || name.includes('pass') || name.includes('assert')) return <CheckCircle2 className="w-3.5 h-3.5" />;
+  return <Sparkles className="w-3.5 h-3.5" />;
+}
+
 function SocraticConceptAnimation({ animation }: { animation: ConceptAnimationData }) {
   const [animStep, setAnimStep] = useState<number>(1);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
 
-  const maxSteps = animation.type === 'index_btree_search' ? 3 : 4;
+  // Guarantee that every animation has rich contextual AI-powered nodes
+  const resolvedAnim = useMemo(() => {
+    return resolveDynamicConceptAnimation(
+      animation.title || 'Dynamic Execution Flow',
+      `${animation.title || ''} ${animation.description || ''}`,
+      null,
+      animation
+    );
+  }, [animation]);
+
+  const activeNodes = resolvedAnim.nodes && resolvedAnim.nodes.length > 0 ? resolvedAnim.nodes : [];
+  const maxSteps = resolvedAnim.steps?.length || (activeNodes.length > 0 ? activeNodes.length : (resolvedAnim.type === 'index_btree_search' ? 3 : 4));
 
   useEffect(() => {
     let timer: any = null;
@@ -374,13 +615,23 @@ function SocraticConceptAnimation({ animation }: { animation: ConceptAnimationDa
     };
   }, [isPlaying, maxSteps]);
 
+  const dynamicStepNarrative = useMemo(() => {
+    if (!resolvedAnim.steps || resolvedAnim.steps.length === 0) {
+      return resolvedAnim.description || `Step ${animStep} active in workflow.`;
+    }
+    const cur = resolvedAnim.steps[animStep - 1];
+    if (typeof cur === 'string') return cur;
+    if (cur && typeof cur === 'object') return (cur as any).description || (cur as any).title || resolvedAnim.description;
+    return resolvedAnim.description;
+  }, [resolvedAnim, animStep]);
+
   return (
     <div className="mt-3 rounded-xl border border-indigo-200/90 dark:border-indigo-900/80 bg-slate-900 text-white p-3.5 space-y-3 shadow-md">
       {/* Animation Header */}
       <div className="flex items-center justify-between pb-2 border-b border-slate-800">
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-          <span className="text-xs font-bold text-white line-clamp-1">{animation.title}</span>
+          <span className="text-xs font-bold text-white line-clamp-1">{resolvedAnim.title || animation.title}</span>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <button
@@ -403,61 +654,68 @@ function SocraticConceptAnimation({ animation }: { animation: ConceptAnimationDa
       </div>
 
       {/* Visual Animation Canvas */}
-      {animation.type === 'boundary_check' && (
+      {activeNodes.length > 0 ? (
         <div className="space-y-2 py-1">
-          <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
-            {/* Node 1: Client Request */}
-            <div className={`p-2.5 rounded-lg border transition-all ${animStep >= 1 ? 'border-indigo-400 bg-indigo-950/60 shadow-xs ring-1 ring-indigo-400/40' : 'border-slate-800 bg-slate-950'}`}>
-              <div className="font-bold text-slate-200 flex items-center justify-center gap-1">
-                <User className="w-3 h-3 text-indigo-400" />
-                <span>Client Request</span>
-              </div>
-              <div className="font-mono text-[9px] text-slate-400 mt-1">action: &quot;delete&quot;</div>
-              <div className="text-[9px] text-amber-400 font-bold mt-0.5">token: missing</div>
-            </div>
+          <div className={`grid gap-1.5 text-center text-[10px] ${
+            activeNodes.length === 3 ? 'grid-cols-3' :
+            activeNodes.length === 5 ? 'grid-cols-5' : 'grid-cols-4'
+          }`}>
+            {activeNodes.map((node: any, idx: number) => {
+              const nodeNum = Number(node.id) || (idx + 1);
+              const curStepObj = resolvedAnim.steps?.[animStep - 1];
+              const stepTargetNode = typeof curStepObj === 'object' && (curStepObj as any)?.active_node ? Number((curStepObj as any).active_node) : animStep;
+              const isActive = stepTargetNode === nodeNum;
+              const isPast = stepTargetNode > nodeNum;
+              const nodeTitle = node.title || node.name || `Node ${nodeNum}`;
+              const nodeSubtitle = node.subtitle || node.detail || '';
+              const nodeState = node.state || node.status_text || '';
 
-            {/* Node 2: Perimeter Boundary Guard */}
-            <div className={`p-2.5 rounded-lg border transition-all relative ${animStep === 2 ? 'border-amber-400 bg-amber-950/60 ring-2 ring-amber-400/50' : animStep >= 3 ? 'border-rose-500 bg-rose-950/60' : 'border-slate-800 bg-slate-950'}`}>
-              <div className="font-bold text-slate-200 flex items-center justify-center gap-1">
-                <ShieldCheck className="w-3 h-3 text-amber-400" />
-                <span>Auth Perimeter</span>
-              </div>
-              <div className="text-[9px] mt-1 font-semibold">
-                {animStep < 2 ? 'Awaiting Packet' : animStep === 2 ? 'Inspecting Headers...' : 'REJECTED: 403 Forbidden'}
-              </div>
-              {animStep === 3 && (
-                <span className="absolute -top-1 -right-1 px-1.5 py-0.2 rounded bg-rose-600 text-white text-[8px] font-extrabold animate-bounce">
-                  DEFLECTED
-                </span>
-              )}
-            </div>
-
-            {/* Node 3: Database & Core State */}
-            <div className={`p-2.5 rounded-lg border transition-all ${animStep === 4 ? 'border-emerald-400 bg-emerald-950/60 ring-1 ring-emerald-400/50' : 'border-slate-800 bg-slate-950'}`}>
-              <div className="font-bold text-slate-200 flex items-center justify-center gap-1">
-                <Database className="w-3 h-3 text-emerald-400" />
-                <span>Protected DB</span>
-              </div>
-              <div className="text-[9px] text-emerald-400 font-semibold mt-1">
-                {animStep >= 3 ? '✓ 0 IO / Untouched' : 'Idle State'}
-              </div>
-              <div className="text-[8px] text-slate-400 mt-0.5">ACID Integrity Safe</div>
-            </div>
+              return (
+                <div
+                  key={idx}
+                  className={`p-2 rounded-lg border transition-all duration-300 relative ${
+                    isActive
+                      ? 'border-indigo-400 bg-indigo-950/70 ring-2 ring-indigo-400/50 shadow-md scale-[1.02]'
+                      : isPast
+                      ? 'border-emerald-500/60 bg-emerald-950/30 ring-1 ring-emerald-500/30'
+                      : 'border-slate-800 bg-slate-950/80 opacity-70'
+                  }`}
+                >
+                  <div className={`mx-auto mb-1 flex items-center justify-center ${
+                    isActive ? 'text-indigo-300 animate-pulse' : isPast ? 'text-emerald-400' : 'text-slate-400'
+                  }`}>
+                    <DynamicNodeIcon iconName={node.icon} />
+                  </div>
+                  <span className={`font-bold block line-clamp-1 ${isActive ? 'text-white' : 'text-slate-200'}`}>
+                    {nodeTitle}
+                  </span>
+                  {nodeSubtitle && (
+                    <span className="text-[9px] text-slate-400 block line-clamp-1 mt-0.5">
+                      {nodeSubtitle}
+                    </span>
+                  )}
+                  {nodeState && (
+                    <div className={`text-[8.5px] font-semibold mt-1 line-clamp-1 ${
+                      isActive ? 'text-amber-300' : isPast ? 'text-emerald-300' : 'text-slate-500'
+                    }`}>
+                      {isActive ? '▶ ' : isPast ? '✓ ' : ''}{nodeState}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
-          <div className="flex items-center justify-between text-[10px] text-slate-400 px-1 pt-1">
-            <span>
-              {animStep === 1 && 'Step 1: Malformed packet attempts entry without token credentials.'}
-              {animStep === 2 && 'Step 2: Boundary middleware intercepts before query parser executes.'}
-              {animStep === 3 && 'Step 3: Security perimeter returns 403 Forbidden deflection immediately.'}
-              {animStep === 4 && 'Step 4: Persistence layer is completely isolated, preventing resource starvation.'}
+          <div className="flex items-center justify-between text-[10px] text-slate-300 px-1 pt-1 bg-slate-950/50 rounded-lg p-1.5 border border-slate-800/60">
+            <span className="line-clamp-2">
+              {dynamicStepNarrative}
             </span>
-            <span className="font-mono text-indigo-400 font-bold shrink-0">{animStep}/4</span>
+            <span className="font-mono text-indigo-400 font-bold shrink-0 ml-2">
+              {animStep}/{maxSteps}
+            </span>
           </div>
         </div>
-      )}
-
-      {animation.type === 'index_btree_search' && (
+      ) : resolvedAnim.type === 'index_btree_search' ? (
         <div className="space-y-2 py-1">
           <div className="space-y-2 text-[10px]">
             {/* Seq Scan Lane */}
@@ -492,9 +750,7 @@ function SocraticConceptAnimation({ animation }: { animation: ConceptAnimationDa
             <span className="font-mono text-emerald-400 font-bold shrink-0">{animStep}/3</span>
           </div>
         </div>
-      )}
-
-      {animation.type === 'concurrency_lock' && (
+      ) : animation.type === 'concurrency_lock' ? (
         <div className="space-y-2 py-1">
           <div className="grid grid-cols-2 gap-2 text-[10px]">
             {/* Thread A Lane */}
@@ -529,9 +785,7 @@ function SocraticConceptAnimation({ animation }: { animation: ConceptAnimationDa
             <span className="font-mono text-amber-400 font-bold shrink-0">{animStep}/4</span>
           </div>
         </div>
-      )}
-
-      {animation.type === 'pipeline_flow' && (
+      ) : animation.type === 'pipeline_flow' ? (
         <div className="space-y-2 py-1">
           <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
             <div className={`p-2 rounded-lg border transition-all ${animStep >= 1 ? 'border-indigo-400 bg-indigo-950/60' : 'border-slate-800 bg-slate-950'}`}>
@@ -566,9 +820,7 @@ function SocraticConceptAnimation({ animation }: { animation: ConceptAnimationDa
             <span className="font-mono text-cyan-400 font-bold shrink-0">{animStep}/4</span>
           </div>
         </div>
-      )}
-
-      {animation.type === 'vector_search' && (
+      ) : animation.type === 'vector_search' ? (
         <div className="space-y-2 py-1">
           <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
             <div className={`p-2 rounded-lg border transition-all ${animStep >= 1 ? 'border-indigo-400 bg-indigo-950/60 ring-1 ring-indigo-400/40' : 'border-slate-800 bg-slate-950'}`}>
@@ -603,9 +855,8 @@ function SocraticConceptAnimation({ animation }: { animation: ConceptAnimationDa
             <span className="font-mono text-cyan-400 font-bold shrink-0">{animStep}/4</span>
           </div>
         </div>
-      )}
-
-      {animation.type === 'ml_training_loop' && (
+      ) : (
+        /* ml_training_loop */
         <div className="space-y-2 py-1">
           <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
             <div className={`p-2 rounded-lg border transition-all ${animStep >= 1 ? 'border-indigo-400 bg-indigo-950/60 ring-1 ring-indigo-400/40' : 'border-slate-800 bg-slate-950'}`}>
@@ -790,9 +1041,31 @@ function FormattedMentorMessage({ text }: { text: string }) {
 }
 
 export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
+  const { user } = useAuth();
+  const currentUserId = user?.id
+    ? String(user.id)
+    : (typeof window !== 'undefined'
+        ? window.localStorage.getItem('skillbridge_user_id') || 'usr_demo_001'
+        : 'usr_demo_001');
+
   // Target Role & Skill Gap State
   const [roles, setRoles] = useState<TargetRoleOption[]>([]);
-  const [selectedRoleId, setSelectedRoleId] = useState<string>('role_junior_backend');
+  const [selectedRoleId, setSelectedRoleId] = useState<string>(() => {
+    try {
+      if (typeof window !== 'undefined' && window.location) {
+        const url = new URL(window.location.href);
+        const r = url.searchParams.get('role');
+        if (r) return r;
+      }
+      const svcRole = skillGapService.getSelectedRoleId();
+      if (svcRole) return svcRole;
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const stored = window.localStorage.getItem('skillbridge_selected_role');
+        if (stored) return stored;
+      }
+    } catch {}
+    return 'role_junior_backend';
+  });
   const [skillGaps, setSkillGaps] = useState<TraceableMatchResult[]>([]);
   const [activeSkillGap, setActiveSkillGap] = useState<string>(() => {
     try {
@@ -814,15 +1087,45 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
   // Practice Project State (supports switching back and forth)
   const [cachedPracticeProject, setCachedPracticeProject] = useState<any>(() => {
     try {
+      let initialSkill: string | null = null;
+      if (typeof window !== 'undefined' && window.location) {
+        const url = new URL(window.location.href);
+        initialSkill = url.searchParams.get('skill');
+      }
       if (typeof window !== 'undefined' && window.localStorage) {
         const raw = window.localStorage.getItem('skillbridge_selected_practice_project');
-        if (raw) return JSON.parse(raw);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (initialSkill && parsed.skill_name && parsed.skill_name.toLowerCase().trim() !== initialSkill.toLowerCase().trim()) {
+            return null;
+          }
+          return parsed;
+        }
       }
     } catch {}
     return null;
   });
   const [isProjectTrackActive, setIsProjectTrackActive] = useState<boolean>(true);
   const [isLoadingGaps, setIsLoadingGaps] = useState<boolean>(true);
+
+  // Dynamic AI-Generated Personalized Syllabus & Rubric State
+  const [dynamicSyllabus, setDynamicSyllabus] = useState<{
+    project_title?: string;
+    syllabus_steps: Array<{
+      step_number: number;
+      field_key: 'valid_test' | 'invalid_test' | 'auth_test' | 'assertions' | 'explanation';
+      title: string;
+      subtitle: string;
+      target_file?: string;
+      points: number;
+      starter_code: string;
+      description?: string;
+    }>;
+    rubric: Array<{ id?: string; name: string; pts: number; desc: string }>;
+    concept_animation: ConceptAnimationData;
+    source?: string;
+  } | null>(null);
+  const [isGeneratingSyllabus, setIsGeneratingSyllabus] = useState<boolean>(false);
 
   // Synchronize practice project when active skill tab switches
   useEffect(() => {
@@ -930,9 +1233,11 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
   }, [activeSkillGap]);
 
   const [submission, setSubmission] = useState<AssessmentSubmission>(() => getStarterScaffolding(activeSkillGap));
-  const [githubUrl, setGithubUrl] = useState<string>('https://github.com/developer/skillbridge-deliverables');
+  const [githubUrl, setGithubUrl] = useState<string>('');
   const [selectedFileName, setSelectedFileName] = useState<string>('');
   const [fileContent, setFileContent] = useState<string>('');
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; content: string; size: number }>>([]);
+  const [previewFileIndex, setPreviewFileIndex] = useState<number>(0);
 
   // Evaluation & Interactive Support State
   const [isEvaluating, setIsEvaluating] = useState<boolean>(false);
@@ -941,6 +1246,61 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
   const [unlockedHintLevel, setUnlockedHintLevel] = useState<number>(1);
   const [experienceLevel, setExperienceLevel] = useState<'beginner' | 'intermediate' | 'advanced'>('intermediate');
   const [gapClosedNotice, setGapClosedNotice] = useState<string | null>(null);
+
+  // Dynamically generate AI personalized syllabus, rubric, and animation whenever active skill, project, or role changes
+  useEffect(() => {
+    let isCancelled = false;
+    setIsGeneratingSyllabus(true);
+
+    const targetRoleObj = roles.find(r => r.id === selectedRoleId);
+    const targetRoleTitle = targetRoleObj?.role_title || (targetRoleObj as any)?.title || 'Backend Developer';
+
+    api.generateSyllabus({
+      skill_name: activeSkillGap,
+      target_role: targetRoleTitle,
+      project_title: activePracticeProject?.title,
+      target_deliverables: activePracticeProject?.target_deliverables || [],
+      experience_level: experienceLevel,
+      learning_preference: learningPreference
+    }).then(res => {
+      if (isCancelled) return;
+      if (res && res.syllabus_steps && res.syllabus_steps.length > 0) {
+        setDynamicSyllabus(res as any);
+      }
+    }).catch(err => {
+      console.warn('Could not load AI dynamic syllabus, using standard fallback:', err);
+    }).finally(() => {
+      if (!isCancelled) setIsGeneratingSyllabus(false);
+    });
+
+    return () => { isCancelled = true; };
+  }, [activeSkillGap, activePracticeProject?.title, selectedRoleId, experienceLevel, roles]);
+
+  const handleRegenerateSyllabus = async () => {
+    setIsGeneratingSyllabus(true);
+    try {
+      const targetRoleObj = roles.find(r => r.id === selectedRoleId);
+      const targetRoleTitle = targetRoleObj?.role_title || (targetRoleObj as any)?.title || 'Backend Developer';
+
+      const res = await api.generateSyllabus({
+        skill_name: activeSkillGap,
+        target_role: targetRoleTitle,
+        project_title: activePracticeProject?.title,
+        target_deliverables: activePracticeProject?.target_deliverables || [],
+        experience_level: experienceLevel,
+        learning_preference: learningPreference
+      });
+      if (res && res.syllabus_steps && res.syllabus_steps.length > 0) {
+        setDynamicSyllabus(res as any);
+        setSavedSubmissionNotice('AI dynamic syllabus and rubrics personalized.');
+        setTimeout(() => setSavedSubmissionNotice(null), 3000);
+      }
+    } catch (err) {
+      console.warn('Manual syllabus personalization failed:', err);
+    } finally {
+      setIsGeneratingSyllabus(false);
+    }
+  };
 
   const resolveEndpoint = (path: string) => {
     if (typeof window !== 'undefined' && window.location) {
@@ -1019,6 +1379,30 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
   const [savedSubmissionNotice, setSavedSubmissionNotice] = useState<string | null>(null);
 
   const handleResetToTemplate = () => {
+    if (dynamicSyllabus?.syllabus_steps && dynamicSyllabus.syllabus_steps.length > 0) {
+      const newSub: AssessmentSubmission = {
+        valid_test: '',
+        invalid_test: '',
+        auth_test: '',
+        assertions: '',
+        explanation: `Explain the architectural design and trade-offs for this ${activeSkillGap} deliverable.`
+      };
+      dynamicSyllabus.syllabus_steps.forEach((st: any) => {
+        const key = st.field_key as keyof AssessmentSubmission;
+        if (key) {
+          newSub[key] = st.starter_code || `# Step ${st.step_number || st.step}: ${st.title}\n# ${st.subtitle || st.description || ''}\n`;
+        }
+      });
+      setSubmission(newSub);
+      setSavedSubmissionNotice('Starter template restored from AI-personalized syllabus.');
+      setTimeout(() => setSavedSubmissionNotice(null), 3500);
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.removeItem(`skillbridge_saved_submission_${activeSkillGap}`);
+        }
+      } catch {}
+      return;
+    }
     setSubmission(getStarterScaffolding(activeSkillGap));
     setSavedSubmissionNotice(null);
     try {
@@ -1183,13 +1567,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
     let followUp = '';
     let conceptAnim: ConceptAnimationData | undefined = undefined;
 
-    const s = activeSkillGap.toLowerCase();
     const domain = detectSkillDomain(activeSkillGap);
-    const animType: ConceptAnimationData['type'] =
-      domain === 'ml_ai' ? 'ml_training_loop' :
-      (s.includes('vector') || s.includes('rag')) ? 'vector_search' :
-      (s.includes('index') || s.includes('postgres') || s.includes('sql')) ? 'index_btree_search' :
-      (s.includes('pipeline') || s.includes('aws') || s.includes('cloud')) ? 'pipeline_flow' : 'boundary_check';
 
     if (domain === 'ml_ai') {
       if (pref === 'visual') {
@@ -1243,50 +1621,151 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
         followUp = `Why did PyTorch designers choose to accumulate gradients in .grad rather than overwriting them on each loss.backward() call?`;
       }
     } else {
+      const s = (activeSkillGap || '').toLowerCase();
+      const deliverables = activePracticeProject?.deliverables || [];
+      const d1 = deliverables[0] || 'src/models/task.ts';
+      const d2 = deliverables[1] || 'src/controllers/taskController.ts';
+      const d3 = deliverables[2] || 'src/routes/taskRoutes.ts';
+      const entityBase = d1.split('/').pop()?.replace(/\.(ts|js|py|sql)$/, '') || 'task';
+      const entityName = entityBase.charAt(0).toUpperCase() + entityBase.slice(1);
+
       if (pref === 'visual') {
-        conceptAnim = {
-          type: animType,
-          title: `Interactive Architectural Visualizer: ${activeSkillGap}`,
-          description: `Visual walkthrough of data flow, boundary gates, and state persistence for ${activeSkillGap}.`
-        };
+        conceptAnim = resolveDynamicConceptAnimation(
+          activeSkillGap,
+          'visual architecture flow',
+          activePracticeProject,
+          dynamicSyllabus?.concept_animation
+        );
         adaptationText = `🎨 Style updated to Visual Mode for ${activeSkillGap}!\n\n` +
           `Here is the architectural execution flow diagram:\n\n` +
-          `[Client HTTP Request]\n` +
-          `       │\n` +
-          `       ▼\n` +
-          `[Security & Auth Gate] ──► Missing/Expired Token ──► [HTTP 401 Unauthorized]\n` +
-          `       │\n` +
-          `       ▼\n` +
-          `[Serializer Validation] ─► Malformed Payload ──────► [HTTP 400 Bad Request]\n` +
-          `       │\n` +
-          `       ▼\n` +
-          `[Core Logic & DB ORM] ──► Valid Execution! ────────► [HTTP 201/200 Success Response]\n\n` +
+          (s.includes('typescript') || s.includes('javascript') || d1.endsWith('.ts')
+            ? `[Raw Client JSON] ──► [Zod Schema (z.infer)] ──► [Perimeter safeParse()] ──► [Type-Safe Controller] ──► [HTTP 201/200 OK]\n` +
+              `                             │                                    ▲\n` +
+              `                             └── Invalid Payload (HTTP 400) ───────┘\n\n`
+            : `[Client HTTP Request] ──► [Security & Auth Gate] ──► [Schema Validation] ──► [Core Logic & DB ORM] ──► [HTTP 201/200 Success]\n\n`) +
           `I have also activated the interactive concept animation below so you can step through the execution path visually!`;
         followUp = `At which stage in this visual pipeline should boundary constraints be enforced to protect system storage?`;
       } else if (pref === 'hands_on') {
-        adaptationText = `🛠️ Style updated to Hands-on Mode for ${activeSkillGap}!\n\n` +
-          `Here is your concrete test-runner contract harness blueprint:\n\n` +
-          `### Practical Contract Test Patterns\n` +
-          `\`\`\`python\n` +
-          `assert response.status_code in [200, 201]\n` +
-          `assert "id" in response.data or "order_id" in response.data\n` +
-          `assert response.data.get("status") in ["verified", "pending", "success"]\n` +
-          `\`\`\`\n\n` +
-          `### Negative Boundary & Edge Case Assertion\n` +
-          `\`\`\`python\n` +
-          `assert bad_response.status_code == 400\n` +
-          `assert "errors" in bad_response.data\n` +
-          `\`\`\`\n\n` +
-          `Focus on structuring your deliverable assertions to verify both HTTP status codes and returned response body schemas.`;
-        followUp = `What specific malformed or boundary input value will your test runner send to confirm the boundary returns HTTP 400?`;
+        if (s.includes('typescript') || s.includes('javascript') || s.includes('react') || s.includes('node') || d1.endsWith('.ts') || d1.endsWith('.tsx')) {
+          adaptationText = `🛠️ Style updated to Hands-on Mode for ${activeSkillGap}!\n\n` +
+            `Here is your concrete test-runner contract harness blueprint for ${activeSkillGap}:\n\n` +
+            `In TypeScript architectures, static types (\`interface\` and \`type\`) are completely erased at compile time. At runtime, JavaScript executes without type guarantees unless you enforce boundary validation. A contract harness using Supertest and Zod ensures that incoming and outgoing payloads satisfy strict schema invariants before touching business logic or persistence.\n\n` +
+            `### Practical Contract Test Patterns\n` +
+            `\`\`\`typescript\n` +
+            `import request from 'supertest';\n` +
+            `import { app } from '../app';\n` +
+            `import { ${entityName}Schema } from '../models/${entityBase}';\n\n` +
+            `describe('${activeSkillGap} Contract & Schema Boundary Invariants', () => {\n` +
+            `  it('verifies 201 Created and validates strict response contract', async () => {\n` +
+            `    const response = await request(app)\n` +
+            `      .post('/api/${entityBase}s')\n` +
+            `      .send({ title: 'Production Contract Verification', priority: 'high' });\n\n` +
+            `    expect(response.status).toBe(201);\n` +
+            `    expect(response.body).toHaveProperty('id');\n` +
+            `    // Validate runtime response adheres strictly to the TypeScript/Zod contract\n` +
+            `    const parsed = ${entityName}Schema.safeParse(response.body);\n` +
+            `    expect(parsed.success).toBe(true);\n` +
+            `  });\n\n` +
+            `  it('deflects malformed payloads at perimeter with 400 Bad Request', async () => {\n` +
+            `    const badResponse = await request(app)\n` +
+            `      .post('/api/${entityBase}s')\n` +
+            `      .send({ title: '' }); // Invalid: violates non-empty boundary\n\n` +
+            `    expect(badResponse.status).toBe(400);\n` +
+            `    expect(badResponse.body).toHaveProperty('errors');\n` +
+            `  });\n` +
+            `});\n` +
+            `\`\`\`\n\n` +
+            `Focus on structuring your deliverable assertions in \`${d3}\` and \`${d2}\` to verify both HTTP status codes and runtime schema validation with \`${entityName}Schema.safeParse()\`.`;
+          followUp = `In TypeScript, why is using 'z.infer<typeof ${entityName}Schema>' superior in production compared to maintaining a duplicate manual TypeScript interface alongside a separate validation function?`;
+        } else if (s.includes('postgres') || s.includes('sql') || s.includes('database')) {
+          adaptationText = `🛠️ Style updated to Hands-on Mode for ${activeSkillGap}!\n\n` +
+            `Here is your concrete transactional boundary test harness for ${activeSkillGap}:\n\n` +
+            `Relational database deliverables require strict boundary validation, index utilization, and ACID isolation to prevent dirty reads and table lock contention under concurrency.\n\n` +
+            `### Transactional Boundary & Constraint Verification\n` +
+            `\`\`\`sql\n` +
+            `-- 1. Verify Unique Constraint Boundary\n` +
+            `INSERT INTO ${entityBase}s (title, status) VALUES ('Unique Item', 'pending');\n` +
+            `-- Duplicate insertion must fail with unique violation 23505\n` +
+            `SAVEPOINT sp1;\n` +
+            `INSERT INTO ${entityBase}s (title, status) VALUES ('Unique Item', 'pending'); -- Fails\n` +
+            `ROLLBACK TO SAVEPOINT sp1;\n\n` +
+            `-- 2. Verify Index Utilization Plan\n` +
+            `EXPLAIN ANALYZE SELECT * FROM ${entityBase}s WHERE status = 'pending';\n` +
+            `\`\`\`\n\n` +
+            `Focus on verifying that your schema strictly enforces foreign key cascades, unique constraints, and indexes on high-cardinality query columns.`;
+          followUp = `What specific constraint or transaction boundary prevents duplicate or orphaned records during concurrent transactions in ${activeSkillGap}?`;
+        } else if (s.includes('docker') || s.includes('devops') || s.includes('container')) {
+          adaptationText = `🛠️ Style updated to Hands-on Mode for ${activeSkillGap}!\n\n` +
+            `Here is your concrete container contract test harness for ${activeSkillGap}:\n\n` +
+            `### Container Invariant Verification Harness\n` +
+            `\`\`\`bash\n` +
+            `# 1. Multi-Stage Build & Image Footprint Audit\n` +
+            `docker build -t app:test .\n\n` +
+            `# 2. Non-Root Security Perimeter Audit\n` +
+            `RUNNING_USER=$(docker run --rm app:test whoami)\n` +
+            `if [ "$RUNNING_USER" = "root" ]; then\n` +
+            `  echo "Security Violation: Container must execute as non-root user"\n` +
+            `  exit 1\n` +
+            `fi\n\n` +
+            `# 3. Healthcheck Probe Verification\n` +
+            `docker run -d --name app_probe -p 8080:8080 app:test\n` +
+            `sleep 3\n` +
+            `curl -f http://localhost:8080/health || exit 1\n` +
+            `docker rm -f app_probe\n` +
+            `\`\`\`\n\n` +
+            `Focus on ensuring that your Dockerfile uses multi-stage caching, drops root privileges, and defines a deterministic healthcheck endpoint.`;
+          followUp = `How does running a container as a non-root user protect host system resources in production deployments?`;
+        } else {
+          adaptationText = `🛠️ Style updated to Hands-on Mode for ${activeSkillGap}!\n\n` +
+            `Here is your concrete test-runner contract harness blueprint for ${activeSkillGap}:\n\n` +
+            `### Practical Contract Test Patterns\n` +
+            `\`\`\`python\n` +
+            `assert response.status_code in [200, 201]\n` +
+            `assert "id" in response.data or "${entityBase}_id" in response.data\n` +
+            `assert response.data.get("status") in ["verified", "pending", "success"]\n` +
+            `\`\`\`\n\n` +
+            `### Negative Boundary & Edge Case Assertion\n` +
+            `\`\`\`python\n` +
+            `assert bad_response.status_code == 400\n` +
+            `assert "errors" in bad_response.data\n` +
+            `\`\`\`\n\n` +
+            `Focus on structuring your deliverable assertions to verify both HTTP status codes and returned response body schemas in \`${d2}\`.`;
+          followUp = `What specific malformed or boundary input value will your test runner send to confirm the boundary returns HTTP 400 in ${activeSkillGap}?`;
+        }
       } else {
-        adaptationText = `💡 Style updated to Socratic Mode for ${activeSkillGap}!\n\n` +
-          `I will guide your problem-solving step-by-step with diagnostic questions and trade-off comparisons rather than giving away direct code solutions.\n\n` +
-          `Architectural Trade-off Analysis:\n` +
-          `• Choice A: Perform validation exclusively at the database model layer.\n` +
-          `• Choice B: Perform validation early at the API serializer perimeter.\n` +
-          `• Consequence: Perimeter validation rejects malformed requests in sub-millisecond time without touching disk or acquiring DB connection locks.`;
-        followUp = `What are the consequences of relying solely on database constraints instead of perimeter validation in ${activeSkillGap}?`;
+        if (s.includes('docker') || s.includes('devops') || s.includes('container') || s.includes('kubernetes')) {
+          adaptationText = `💡 Style updated to Socratic Mode for ${activeSkillGap}!\n\n` +
+            `I will guide your problem-solving step-by-step with diagnostic questions and trade-off comparisons rather than giving away direct code solutions.\n\n` +
+            `Container Architecture Trade-off Analysis:\n` +
+            `• Choice A: Single-stage build image containing compilers, build tools, and root execution privileges.\n` +
+            `• Choice B: Multi-stage build with minimal distroless/Alpine runtime executing under an unprivileged user.\n` +
+            `• Consequence: Choice B drastically reduces the attack surface, minimizes CVE audit overhead, and cuts container cold-start transfer time from gigabytes to megabytes.`;
+          followUp = `What security and operational trade-offs occur when running containers as an unprivileged user versus default root in ${activeSkillGap}?`;
+        } else if (s.includes('postgres') || s.includes('sql') || s.includes('database')) {
+          adaptationText = `💡 Style updated to Socratic Mode for ${activeSkillGap}!\n\n` +
+            `I will guide your problem-solving step-by-step with diagnostic questions and trade-off comparisons rather than giving away direct code solutions.\n\n` +
+            `Database Architecture Trade-off Analysis:\n` +
+            `• Choice A: Add indexes to all columns to speed up arbitrary search queries.\n` +
+            `• Choice B: Profile query access patterns with EXPLAIN ANALYZE and build composite indexes for high-cardinality filters.\n` +
+            `• Consequence: Choice A drastically degrades write throughput and bloats WAL I/O without resolving query planner bottleneck scans.`;
+          followUp = `How does index write amplification impact insert/update throughput during peak transactional workloads in ${activeSkillGap}?`;
+        } else if (s.includes('react') || s.includes('typescript') || s.includes('javascript') || s.includes('frontend') || d1.endsWith('.tsx')) {
+          adaptationText = `💡 Style updated to Socratic Mode for ${activeSkillGap}!\n\n` +
+            `I will guide your problem-solving step-by-step with diagnostic questions and trade-off comparisons rather than giving away direct code solutions.\n\n` +
+            `Client & State Architecture Trade-off Analysis:\n` +
+            `• Choice A: Lift all application and server state into a monolithic global store.\n` +
+            `• Choice B: Separate server-cache invalidation (e.g. React Query / SWR) from co-located ephemeral component state.\n` +
+            `• Consequence: Choice B avoids unnecessary render waterfalls and eliminates synchronized state discrepancies across component lifecycles.`;
+          followUp = `What criteria determine whether a piece of state should live locally within a component versus in a shared store or server cache in ${activeSkillGap}?`;
+        } else {
+          adaptationText = `💡 Style updated to Socratic Mode for ${activeSkillGap}!\n\n` +
+            `I will guide your problem-solving step-by-step with diagnostic questions and trade-off comparisons rather than giving away direct code solutions.\n\n` +
+            `API Architectural Trade-off Analysis:\n` +
+            `• Choice A: Perform validation exclusively at the database model layer.\n` +
+            `• Choice B: Perform validation early at the API serializer perimeter.\n` +
+            `• Consequence: Perimeter validation rejects malformed requests in sub-millisecond time without touching disk or acquiring DB connection locks.`;
+          followUp = `What are the consequences of relying solely on database constraints instead of perimeter validation in ${activeSkillGap}?`;
+        }
       }
     }
 
@@ -1367,7 +1846,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
             sender: 'mentor',
             text: data.reply,
             socraticQuestion: data.socraticQuestion,
-            conceptAnimation: data.conceptAnimation,
+            conceptAnimation: data.conceptAnimation ? resolveDynamicConceptAnimation(activeSkillGap, q, activePracticeProject, data.conceptAnimation) : undefined,
             source: data.source || 'live_ai',
             model: data.model || 'cohere/north-mini-code:free'
           };
@@ -1661,7 +2140,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
         followUp = `For ${activeSkillGap}, what specific guard condition prevents CUDA out-of-memory leaks or NaN gradients during training?`;
       } else {
         if (wantsAnim || learningPreference === 'visual') {
-          conceptAnim = {
+          conceptAnim = dynamicSyllabus?.concept_animation || {
             type: 'boundary_check',
             title: `Interactive Concept Animation: ${activeSkillGap} Workflow`,
             description: `Visual walkthrough of data flow, validation checks, and state mutation in ${activeSkillGap}.`
@@ -1702,7 +2181,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
       sender: 'mentor',
       text: reply,
       socraticQuestion: followUp,
-      conceptAnimation: conceptAnim,
+      conceptAnimation: conceptAnim ? resolveDynamicConceptAnimation(activeSkillGap, q, activePracticeProject, conceptAnim) : undefined,
       source: 'offline_fallback',
       model: 'Offline Knowledge Engine'
     };
@@ -1875,25 +2354,79 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
 
     const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
     const initialSkillParam = params?.get('skill');
+    const initialRoleParam = params?.get('role') || skillGapService.getSelectedRoleId() || (typeof window !== 'undefined' ? window.localStorage.getItem('skillbridge_selected_role') : null);
 
-    skillGapService.getTargetRoles().then(async (loadedRoles) => {
+    skillGapService.getTargetRoles(currentUserId).then(async (loadedRoles) => {
       if (isCancelled) return;
-      setRoles(loadedRoles);
-      const roleId = loadedRoles[0]?.id || 'role_junior_backend';
-      setSelectedRoleId(roleId);
+      let effectiveRoles = [...loadedRoles];
 
-      const analysis = await skillGapService.runAnalysis(roleId);
+      let targetRoleId = effectiveRoles[0]?.id || 'role_junior_backend';
+      if (initialRoleParam) {
+        const found = effectiveRoles.find(r => r?.id === initialRoleParam || (r?.id && r.id.toLowerCase() === initialRoleParam.toLowerCase()));
+        if (found) {
+          targetRoleId = found.id;
+        } else {
+          const sub = effectiveRoles.find(r => {
+            const t = (r?.role_title || (r as any)?.title || '').toLowerCase();
+            const id = (r?.id || '').toLowerCase();
+            return t.includes(initialRoleParam.toLowerCase()) || (id && initialRoleParam.toLowerCase().includes(id));
+          });
+          if (sub?.id) {
+            targetRoleId = sub.id;
+          } else {
+            try {
+              const directAnalysis = await api.getJobAnalysis(initialRoleParam);
+              if (directAnalysis && directAnalysis.analysis_id) {
+                const directRoleObj: TargetRoleOption = {
+                  id: directAnalysis.analysis_id,
+                  role_title: directAnalysis.role_title,
+                  level: directAnalysis.mode === 'goal_based' ? 'Mode B: Goal-Based' : 'Mode A: Job-Specific (JD Matcher)',
+                  department: 'Target Assessment Role',
+                  mode: (directAnalysis.mode as any) || 'job_specific',
+                  days_remaining: directAnalysis.days_remaining || 14,
+                  study_hours_per_week: directAnalysis.study_hours_per_week || 14,
+                  job_text: directAnalysis.job_text || '',
+                  summary: directAnalysis.summary || `Extracted requirements for ${directAnalysis.role_title}`,
+                  requirements: directAnalysis.requirements || []
+                };
+                effectiveRoles = [directRoleObj, ...effectiveRoles];
+                targetRoleId = directRoleObj.id;
+              }
+            } catch {}
+          }
+        }
+      }
+
+      setRoles(effectiveRoles);
+      setSelectedRoleId(targetRoleId);
+      skillGapService.setSelectedRole(targetRoleId);
+
+      const analysis = await skillGapService.runAnalysis(targetRoleId, undefined, undefined, currentUserId);
       if (isCancelled) return;
 
       if (analysis && analysis.results) {
-        // Real gaps are skills that are not Demonstrated
-        const gaps = analysis.results.filter(r => r.status !== 'Demonstrated');
-        setSkillGaps(gaps.length > 0 ? gaps : analysis.results);
-        if (initialSkillParam) {
-          setActiveSkillGap(initialSkillParam);
-        } else if (gaps.length > 0) {
-          setActiveSkillGap(gaps[0].skill_name);
+        // Keep all role skills in tabs so Demonstrated skills remain reviewable and accessible
+        setSkillGaps(analysis.results);
+
+        let targetSkill = initialSkillParam;
+        if (!targetSkill || !analysis.results.some(g => g.skill_name.toLowerCase().trim() === targetSkill!.toLowerCase().trim())) {
+          const firstOpenGap = analysis.results.find(r => r.status !== 'Demonstrated');
+          targetSkill = firstOpenGap?.skill_name || analysis.results[0]?.skill_name || 'TypeScript';
         }
+
+        setActiveSkillGap(targetSkill);
+
+        // Invalidate cached practice project if it belonged to a different skill or role
+        try {
+          const raw = window.localStorage.getItem('skillbridge_selected_practice_project');
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed.skill_name && parsed.skill_name.toLowerCase().trim() !== targetSkill.toLowerCase().trim()) {
+              window.localStorage.removeItem('skillbridge_selected_practice_project');
+              setCachedPracticeProject(null);
+            }
+          }
+        } catch {}
       }
     }).catch(err => {
       console.warn('Could not load target roles / skill gaps:', err);
@@ -1902,20 +2435,25 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
     });
 
     return () => { isCancelled = true; };
-  }, []);
+  }, [currentUserId]);
 
   // Handle switching target role
   const handleRoleChange = async (roleId: string) => {
     setSelectedRoleId(roleId);
     skillGapService.setSelectedRole(roleId);
     setIsLoadingGaps(true);
+    setCachedPracticeProject(null);
     try {
-      const analysis = await skillGapService.runAnalysis(roleId);
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('skillbridge_selected_role', roleId);
+        window.localStorage.removeItem('skillbridge_selected_practice_project');
+      }
+      const analysis = await skillGapService.runAnalysis(roleId, undefined, undefined, currentUserId);
       if (analysis && analysis.results) {
-        const gaps = analysis.results.filter(r => r.status !== 'Demonstrated');
-        setSkillGaps(gaps.length > 0 ? gaps : analysis.results);
-        if (gaps.length > 0) {
-          setActiveSkillGap(gaps[0].skill_name);
+        setSkillGaps(analysis.results);
+        if (analysis.results.length > 0) {
+          const firstOpenGap = analysis.results.find(r => r.status !== 'Demonstrated');
+          setActiveSkillGap(firstOpenGap?.skill_name || analysis.results[0].skill_name);
         }
       }
     } finally {
@@ -1924,15 +2462,53 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setSelectedFileName(file.name);
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setFileContent(event.target?.result as string || '');
-      };
-      reader.readAsText(file);
+    const fileList = e.target.files;
+    if (fileList && fileList.length > 0) {
+      const readPromises = Array.from(fileList).map(file => {
+        return new Promise<{ name: string; content: string; size: number }>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            resolve({
+              name: file.name,
+              content: (event.target?.result as string) || '',
+              size: file.size
+            });
+          };
+          reader.readAsText(file);
+        });
+      });
+
+      Promise.all(readPromises).then(newItems => {
+        setUploadedFiles(prev => {
+          const fileMap = new Map<string, { name: string; content: string; size: number }>();
+          prev.forEach(item => fileMap.set(item.name, item));
+          newItems.forEach(item => fileMap.set(item.name, item));
+          const updated = Array.from(fileMap.values());
+          if (updated.length > 0) {
+            setSelectedFileName(updated[0].name);
+            setFileContent(updated[0].content);
+            setPreviewFileIndex(0);
+          }
+          return updated;
+        });
+      });
+      e.target.value = '';
     }
+  };
+
+  const handleRemoveUploadedFile = (fileNameToRemove: string) => {
+    setUploadedFiles(prev => {
+      const remaining = prev.filter(f => f.name !== fileNameToRemove);
+      if (remaining.length > 0) {
+        setSelectedFileName(remaining[0].name);
+        setFileContent(remaining[0].content);
+        setPreviewFileIndex(0);
+      } else {
+        setSelectedFileName('');
+        setFileContent('');
+      }
+      return remaining;
+    });
   };
 
   // Run Rubric Evaluation
@@ -1945,9 +2521,17 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
     if (submissionMode === 'code') {
       payloadData = submission;
     } else if (submissionMode === 'github') {
-      payloadData = { github_url: githubUrl, code_preview: submission.valid_test };
+      payloadData = { github_url: githubUrl };
     } else {
-      payloadData = { filename: selectedFileName || 'deliverable.sql', content: fileContent || submission.valid_test };
+      if (uploadedFiles.length > 0) {
+        payloadData = {
+          files: uploadedFiles.map(f => ({ filename: f.name, content: f.content })),
+          filename: uploadedFiles[0].name,
+          content: uploadedFiles[0].content
+        };
+      } else {
+        payloadData = { filename: selectedFileName || 'deliverable.sql', content: fileContent || submission.valid_test };
+      }
     }
 
     // Persist user's submitted work so they can refer to or review it anytime
@@ -1959,11 +2543,12 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
     setSavedSubmissionNotice('Changes saved. You can return to review or edit your work anytime.');
 
     try {
-      const response = await fetch(`/api/assessments/asm_${activeSkillGap.toLowerCase().replace(/[^a-z0-9]/g, '_')}/submissions/`, {
+      const targetSlug = activeSkillGap.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const response = await fetch(resolveEndpoint(`/api/assessments/asm_${targetSlug}/submissions/`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: 'usr_demo_001',
+          user_id: 'demo_user',
           submission_type: submissionMode,
           submission: payloadData,
           target_skill: activeSkillGap,
@@ -2373,41 +2958,54 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
                 </div>
               )}
 
-              {/* Multi-Modal Tab Selector */}
-              <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shrink-0">
+              {/* Multi-Modal Tab Selector & AI Personalize Button */}
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
-                  onClick={() => setSubmissionMode('code')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    submissionMode === 'code'
-                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                  }`}
+                  onClick={handleRegenerateSyllabus}
+                  disabled={isGeneratingSyllabus}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200/60 dark:border-indigo-800/60 transition-colors"
+                  title="Personalize tasks and rubrics using AI tailored to your role and project"
                 >
-                  <Code className="w-3.5 h-3.5" /> Code Snippet
+                  <Sparkles className={`w-3.5 h-3.5 text-amber-400 ${isGeneratingSyllabus ? 'animate-spin' : ''}`} />
+                  <span>{isGeneratingSyllabus ? 'Personalizing...' : 'AI Personalize Rubric'}</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setSubmissionMode('github')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    submissionMode === 'github'
-                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  <GitBranch className="w-3.5 h-3.5" /> GitHub Link
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSubmissionMode('file')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    submissionMode === 'file'
-                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  <Upload className="w-3.5 h-3.5" /> Upload File
-                </button>
+
+                <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSubmissionMode('code')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      submissionMode === 'code'
+                        ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Code className="w-3.5 h-3.5" /> Code Snippet
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSubmissionMode('github')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      submissionMode === 'github'
+                        ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <GitBranch className="w-3.5 h-3.5" /> GitHub Link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSubmissionMode('file')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      submissionMode === 'file'
+                        ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Upload className="w-3.5 h-3.5" /> Upload File
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -2432,70 +3030,116 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
 
               {submissionMode === 'code' && (
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      1. Core Implementation (2 pts)
-                    </label>
-                    <textarea
-                      rows={3}
-                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 font-mono text-xs text-slate-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none transition-colors"
-                      value={submission.valid_test}
-                      onChange={e => setSubmission({ ...submission, valid_test: e.target.value })}
-                      required
-                    />
-                  </div>
+                  {dynamicSyllabus?.syllabus_steps && dynamicSyllabus.syllabus_steps.length > 0 ? (
+                    dynamicSyllabus.syllabus_steps.map((st: any, idx: number) => {
+                      const fieldKey = (st.field_key || ['valid_test', 'invalid_test', 'auth_test', 'assertions', 'explanation'][idx]) as keyof AssessmentSubmission;
+                      const isMultiLine = fieldKey === 'explanation' || fieldKey === 'assertions';
+                      return (
+                        <div key={idx} className="rounded-xl border border-slate-200/90 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-900/40 p-3.5 space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="w-5 h-5 rounded-full bg-indigo-600/20 text-indigo-500 dark:text-indigo-400 text-[11px] font-bold flex items-center justify-center shrink-0">
+                                {st.step_number || st.step || (idx + 1)}
+                              </span>
+                              <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                {st.title}
+                              </label>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {st.target_file && (
+                                <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-semibold">
+                                  {st.target_file}
+                                </span>
+                              )}
+                              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                                {st.points || 2} pts
+                              </span>
+                            </div>
+                          </div>
+                          {st.subtitle && (
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                              {st.subtitle}
+                            </p>
+                          )}
+                          <textarea
+                            rows={isMultiLine ? 2 : 3}
+                            className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 p-3 font-mono text-xs text-slate-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none transition-colors"
+                            value={submission[fieldKey] || ''}
+                            onChange={e => setSubmission({ ...submission, [fieldKey]: e.target.value })}
+                            placeholder={st.description || `Implement ${st.title}...`}
+                            required={idx < 3}
+                          />
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          1. Core Implementation (2 pts)
+                        </label>
+                        <textarea
+                          rows={3}
+                          className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 font-mono text-xs text-slate-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none transition-colors"
+                          value={submission.valid_test}
+                          onChange={e => setSubmission({ ...submission, valid_test: e.target.value })}
+                          required
+                        />
+                      </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      2. Edge Cases & Validation Guards (2 pts)
-                    </label>
-                    <textarea
-                      rows={3}
-                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 font-mono text-xs text-slate-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none transition-colors"
-                      value={submission.invalid_test}
-                      onChange={e => setSubmission({ ...submission, invalid_test: e.target.value })}
-                      required
-                    />
-                  </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          2. Edge Cases & Validation Guards (2 pts)
+                        </label>
+                        <textarea
+                          rows={3}
+                          className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 font-mono text-xs text-slate-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none transition-colors"
+                          value={submission.invalid_test}
+                          onChange={e => setSubmission({ ...submission, invalid_test: e.target.value })}
+                          required
+                        />
+                      </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      3. Security & Optimization (3 pts)
-                    </label>
-                    <textarea
-                      rows={3}
-                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 font-mono text-xs text-slate-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none transition-colors"
-                      value={submission.auth_test}
-                      onChange={e => setSubmission({ ...submission, auth_test: e.target.value })}
-                      required
-                    />
-                  </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          3. Security & Optimization (3 pts)
+                        </label>
+                        <textarea
+                          rows={3}
+                          className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 font-mono text-xs text-slate-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none transition-colors"
+                          value={submission.auth_test}
+                          onChange={e => setSubmission({ ...submission, auth_test: e.target.value })}
+                          required
+                        />
+                      </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                        4. Output Verification & Indexing (2 pts)
-                      </label>
-                      <textarea
-                        rows={2}
-                        className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 font-mono text-xs text-slate-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none transition-colors"
-                        value={submission.assertions}
-                        onChange={e => setSubmission({ ...submission, assertions: e.target.value })}
-                      />
-                    </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            4. Output Verification & Indexing (2 pts)
+                          </label>
+                          <textarea
+                            rows={2}
+                            className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 font-mono text-xs text-slate-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none transition-colors"
+                            value={submission.assertions}
+                            onChange={e => setSubmission({ ...submission, assertions: e.target.value })}
+                          />
+                        </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                        5. Design Rationale & Architecture (1 pt)
-                      </label>
-                      <textarea
-                        rows={2}
-                        className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 text-xs text-slate-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none transition-colors"
-                        value={submission.explanation}
-                        onChange={e => setSubmission({ ...submission, explanation: e.target.value })}
-                      />
-                    </div>
-                  </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            5. Design Rationale & Architecture (1 pt)
+                          </label>
+                          <textarea
+                            rows={2}
+                            className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 text-xs text-slate-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none transition-colors"
+                            value={submission.explanation}
+                            onChange={e => setSubmission({ ...submission, explanation: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -2503,30 +3147,23 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
                 <div className="space-y-4 py-2">
                   <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 p-4 space-y-3">
                     <div className="flex items-center gap-2 text-slate-800 dark:text-slate-200 font-semibold text-xs">
-                      <GitBranch className="w-4 h-4" /> Link Your GitHub Repository Deliverable
+                      <GitBranch className="w-4 h-4 text-indigo-500" /> Link Your GitHub Repository Deliverable
                     </div>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Provide a URL to your repository, pull request, or file demonstrating practical competence in <strong>{activeSkillGap}</strong>.
+                      Provide a URL to your public repository or pull request demonstrating practical competence in <strong>{activeSkillGap}</strong>.
                     </p>
                     <input
                       type="url"
                       className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 p-3 text-xs text-slate-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none font-mono"
-                      placeholder="https://github.com/username/repo/blob/main/schema.sql"
+                      placeholder={activePracticeProject?.title ? `https://github.com/your-username/${activePracticeProject.title.replace(/\s+/g, '-')}` : "https://github.com/your-username/your-repository"}
                       value={githubUrl}
                       onChange={e => setGithubUrl(e.target.value)}
                       required
                     />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Primary Code Excerpt for {activeSkillGap}
-                    </label>
-                    <textarea
-                      rows={4}
-                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 font-mono text-xs text-slate-900 dark:text-slate-200 focus:border-indigo-500 focus:outline-none"
-                      value={submission.valid_test}
-                      onChange={e => setSubmission({ ...submission, valid_test: e.target.value })}
-                    />
+                    <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900/80 px-3 py-2 rounded-lg border border-slate-200/60 dark:border-slate-800/60">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      <span>SkillBridge will automatically inspect your repository deliverables and score them against the 10-point rubric.</span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -2536,14 +3173,15 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
                   <div className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-6 text-center hover:border-indigo-500 transition-colors bg-slate-50/50 dark:bg-slate-900/40">
                     <Upload className="w-8 h-8 mx-auto text-slate-400 mb-2" />
                     <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                      Upload Practical Deliverable File (.sql, .py, .ts, .json, .sh, Dockerfile)
+                      Upload Practical Deliverable Files (.ts, .py, .sql, .json, .sh, Dockerfile)
                     </p>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Evaluated for {activeSkillGap}
+                      You can select multiple files at once to submit complete project deliverables for {activeSkillGap}
                     </p>
                     <input
                       type="file"
                       id="deliverable-file-input"
+                      multiple
                       className="hidden"
                       onChange={handleFileUpload}
                     />
@@ -2551,11 +3189,82 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
                       htmlFor="deliverable-file-input"
                       className="inline-block mt-3 px-4 py-1.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-semibold cursor-pointer hover:opacity-90"
                     >
-                      {selectedFileName ? `Selected: ${selectedFileName}` : 'Choose File'}
+                      {uploadedFiles.length > 0 ? `+ Add More Files (${uploadedFiles.length} staged)` : 'Choose Files to Upload'}
                     </label>
                   </div>
 
-                  {fileContent && (
+                  {uploadedFiles.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Staged Deliverable Files ({uploadedFiles.length})
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUploadedFiles([]);
+                            setSelectedFileName('');
+                            setFileContent('');
+                          }}
+                          className="text-[11px] text-rose-500 hover:text-rose-600 font-medium"
+                        >
+                          Clear All Files
+                        </button>
+                      </div>
+
+                      {/* Staged file chips */}
+                      <div className="flex flex-wrap gap-2">
+                        {uploadedFiles.map((file, idx) => {
+                          const isSelected = idx === previewFileIndex;
+                          return (
+                            <div
+                              key={file.name}
+                              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-400 text-indigo-700 dark:text-indigo-300 shadow-xs'
+                                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-400'
+                              }`}
+                              onClick={() => {
+                                setPreviewFileIndex(idx);
+                                setSelectedFileName(file.name);
+                                setFileContent(file.content);
+                              }}
+                            >
+                              <FileCode className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                              <span className="font-mono text-[11px] font-semibold">{file.name}</span>
+                              <span className="text-[10px] text-slate-400">({(file.size / 1024).toFixed(1)} KB)</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemoveUploadedFile(file.name);
+                                }}
+                                className="text-slate-400 hover:text-rose-500 ml-1 text-sm font-bold"
+                                title="Remove file"
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Preview of selected staged file */}
+                      {uploadedFiles[previewFileIndex] && (
+                        <div>
+                          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1">
+                            <span>Previewing: <strong className="text-slate-800 dark:text-slate-200 font-mono">{uploadedFiles[previewFileIndex].name}</strong></span>
+                            <span>{uploadedFiles[previewFileIndex].content.split('\n').length} lines</span>
+                          </div>
+                          <pre className="max-h-48 overflow-y-auto rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3 font-mono text-[11px] text-slate-800 dark:text-slate-200">
+                            {uploadedFiles[previewFileIndex].content}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {uploadedFiles.length === 0 && fileContent && (
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                         File Content Preview ({selectedFileName})
@@ -3048,26 +3757,38 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
         {/* Sidebar Column: Published Rubric for Selected Skill Gap */}
         <div className="space-y-4">
           <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800/80 bg-white dark:bg-[#0e131f] p-5 space-y-4 shadow-xs">
-            <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-sm">
-              <BookOpen className="w-4 h-4 text-indigo-500" />
-              <span>{activeSkillGap} 10-Point Rubric</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-sm">
+                <BookOpen className="w-4 h-4 text-indigo-500" />
+                <span>{activeSkillGap} 10-Point Rubric</span>
+              </div>
+              {dynamicSyllabus && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                  AI Tailored
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Evaluated deterministically according to the {activeSkillGap} standard:
             </p>
 
             <ul className="space-y-2.5 text-xs">
-              {activePreset.rubric.map((item, idx) => (
-                <li key={idx} className="flex justify-between items-start gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800/60 last:border-0">
-                  <div>
-                    <span className="font-semibold text-slate-700 dark:text-slate-300 block">{item.name}</span>
-                    <span className="text-[11px] text-slate-400">{item.desc}</span>
-                  </div>
-                  <span className="font-bold text-slate-900 dark:text-white px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 shrink-0">
-                    {item.pts} pts
-                  </span>
-                </li>
-              ))}
+              {(dynamicSyllabus?.rubric || activePracticeProject?.rubric_breakdown || activePreset.rubric).map((item: any, idx: number) => {
+                const criterionName = item.name || item.criterion || item.title || item.criterion_name || `Criterion ${idx + 1}`;
+                const criterionDesc = item.desc || item.description || item.detail || item.explanation || '';
+                const criterionPts = item.pts ?? item.points ?? item.score ?? item.max_points ?? 2;
+                return (
+                  <li key={idx} className="flex justify-between items-start gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800/60 last:border-0">
+                    <div>
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 block">{criterionName}</span>
+                      {criterionDesc && <span className="text-[11px] text-slate-400">{criterionDesc}</span>}
+                    </div>
+                    <span className="font-bold text-slate-900 dark:text-white px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 shrink-0">
+                      {criterionPts} pts
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
 
             <div className="rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 p-3 text-[11px] text-indigo-900 dark:text-indigo-300 border border-indigo-200/50 dark:border-indigo-900/50 space-y-1">

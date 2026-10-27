@@ -10,6 +10,22 @@ USER_ID = "usr_demo_001"
 
 ROLES_TO_SEED = [
     {
+        "analysis_id": "job_15f49367",
+        "role_title": "Junior Backend Developer",
+        "mode": "job_specific",
+        "days_remaining": 14,
+        "study_hours_per_week": 14.0,
+        "job_text": "We are seeking a Junior Backend Developer to design, build, and maintain RESTful APIs in Python using Django and PostgreSQL. Experience with automated API testing and Docker is a plus.",
+        "summary": "Extracted 5 core requirements for Junior Backend Developer vacancy.",
+        "requirements": [
+            ("Python", "language", "required", "Proficiency in Python and familiarity with web frameworks"),
+            ("Django REST Framework", "framework", "required", "Design, build, and maintain robust RESTful APIs in Python"),
+            ("PostgreSQL", "database", "required", "Write and optimize database queries using PostgreSQL"),
+            ("API Testing", "testing", "required", "Write unit, integration, and end-to-end API tests"),
+            ("Docker", "devops", "preferred", "Containerize services and configure development environments")
+        ]
+    },
+    {
         "analysis_id": "job_frontend_react",
         "role_title": "Frontend React Developer",
         "mode": "job_specific",
@@ -77,31 +93,35 @@ ROLES_TO_SEED = [
     }
 ]
 
-for role_data in ROLES_TO_SEED:
-    analysis, created = JobAnalysis.objects.update_or_create(
-        analysis_id=role_data["analysis_id"],
-        defaults={
-            "user_id": USER_ID,
-            "role_title": role_data["role_title"],
-            "mode": role_data["mode"],
-            "days_remaining": role_data["days_remaining"],
-            "study_hours_per_week": role_data["study_hours_per_week"],
-            "job_text": role_data["job_text"],
-            "summary": role_data["summary"],
-            "status": "completed"
-        }
-    )
-    analysis.requirements.all().delete()
-    for idx, (skill, cat, imp, excerpt) in enumerate(role_data["requirements"]):
-        Requirement.objects.create(
-            requirement_id=f"req_{role_data['analysis_id'][:4]}_{idx+1}",
-            analysis=analysis,
-            skill_name=skill,
-            category=cat,
-            importance=imp,
-            source_excerpt=excerpt,
-            user_confirmed=True
+for uid in ["usr_demo_001", "demo_user"]:
+    for role_data in ROLES_TO_SEED:
+        unique_analysis_id = role_data["analysis_id"] if uid == "usr_demo_001" else f"{role_data['analysis_id']}_demo"
+        analysis, created = JobAnalysis.objects.update_or_create(
+            analysis_id=unique_analysis_id,
+            defaults={
+                "user_id": uid,
+                "role_title": role_data["role_title"],
+                "mode": role_data["mode"],
+                "days_remaining": role_data["days_remaining"],
+                "study_hours_per_week": role_data["study_hours_per_week"],
+                "job_text": role_data["job_text"],
+                "summary": role_data["summary"],
+                "status": "completed"
+            }
         )
-    print(f"Seeded {role_data['mode'].upper()} role: {role_data['role_title']} ({role_data['analysis_id']}) with {len(role_data['requirements'])} requirements")
+        for idx, (skill, cat, imp, excerpt) in enumerate(role_data["requirements"]):
+            req_id = f"req_{uid[:3]}_{role_data['analysis_id'][:8]}_{idx+1}"
+            Requirement.objects.update_or_create(
+                requirement_id=req_id,
+                defaults={
+                    "analysis": analysis,
+                    "skill_name": skill,
+                    "category": cat,
+                    "importance": imp,
+                    "source_excerpt": excerpt,
+                    "user_confirmed": True
+                }
+            )
+        print(f"Seeded {role_data['mode'].upper()} role for {uid}: {role_data['role_title']} ({unique_analysis_id}) with {len(role_data['requirements'])} requirements")
 
 print("Seeding complete!")

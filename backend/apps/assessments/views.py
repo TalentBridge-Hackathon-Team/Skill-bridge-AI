@@ -1,10 +1,15 @@
 import re
+import json
+import logging
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
 from .models import AssessmentTask, AssessmentSubmission, MicroLessonProgress
 from .serializers import AssessmentTaskSerializer, AssessmentSubmissionSerializer, MicroLessonProgressSerializer
 from .evaluator import RubricEvaluator
+
+logger = logging.getLogger(__name__)
 
 class AssessmentDetailView(APIView):
     """
@@ -12,6 +17,7 @@ class AssessmentDetailView(APIView):
     Retrieves task instructions, rubric definition, and target skill,
     and returns the learner's previous submission if one exists so they can refer to it later.
     """
+    permission_classes = [AllowAny]
     def get(self, request, task_id):
         user_id = request.query_params.get("user_id", "usr_demo_001")
         target_skill = request.query_params.get("target_skill")
@@ -21,6 +27,9 @@ class AssessmentDetailView(APIView):
             task = AssessmentTask.objects.filter(target_skill__iexact=target_skill).first()
 
         if not task:
+            from .evaluator import RubricEvaluator
+            evaluator = RubricEvaluator()
+            rubric_specs = evaluator.get_rubric_for_skill(target_skill or "API Testing")
             task = AssessmentTask.objects.create(
                 task_id=task_id,
                 title=f"Practical Technical Assessment: {target_skill or 'API Testing'}",
@@ -31,14 +40,13 @@ class AssessmentDetailView(APIView):
                     f"Write and submit your practical engineering deliverable for {target_skill or 'API Testing'}. "
                     "Demonstrate core implementation, boundary validation, security handling, and engineering trade-offs."
                 ),
-                rubric=[
-                    {"id": "c1", "name": "Core Implementation", "points": 2, "description": f"Implements primary deliverable for {target_skill or 'skill'}."},
-                    {"id": "c2", "name": "Edge Case & Validation Guard", "points": 2, "description": "Guards against malformed or invalid inputs."},
-                    {"id": "c3", "name": "Security & Auth Boundary", "points": 3, "description": "Enforces authorization and boundary constraints."},
-                    {"id": "c4", "name": "Output Assertions & Contracts", "points": 2, "description": "Verifies output structure and contract adherence."},
-                    {"id": "c5", "name": "Engineering Rationale", "points": 1, "description": "Explains architectural trade-offs and rationale."}
-                ]
+                rubric=rubric_specs
             )
+        elif not task.rubric or len(task.rubric) < 4:
+            from .evaluator import RubricEvaluator
+            evaluator = RubricEvaluator()
+            task.rubric = evaluator.get_rubric_for_skill(task.target_skill)
+            task.save(update_fields=["rubric"])
 
         task_data = AssessmentTaskSerializer(task).data
 
@@ -66,6 +74,7 @@ class AssessmentSubmissionView(APIView):
     Auto-detects struggle, provides personalized visual/hands-on support,
     and updates Roadmap & Profile evidence when passed.
     """
+    permission_classes = [AllowAny]
     def post(self, request, task_id):
         user_id = request.data.get("user_id", "usr_demo_001")
         submission_type = request.data.get("submission_type", "code")
@@ -187,6 +196,7 @@ class MicroLessonProgressView(APIView):
     learning preference, experience level, struggle topics, and Socratic mentor chats
     directly in the dedicated PostgreSQL database.
     """
+    permission_classes = [AllowAny]
     def get(self, request):
         user_id = request.query_params.get("user_id", "usr_demo_001")
         skill_name = request.query_params.get("skill_name", "PostgreSQL")
@@ -248,6 +258,7 @@ class MicroLessonChatView(APIView):
     - Features a rich, skill-aware fallback engine preventing repetitive robotic one-liners.
     - Persists full chat conversation state to the dedicated PostgreSQL database.
     """
+    permission_classes = [AllowAny]
     def post(self, request):
         user_id = request.data.get("user_id", "usr_demo_001")
         skill_name = request.data.get("skill_name") or request.data.get("topic") or "Python"
@@ -365,28 +376,34 @@ class MicroLessonChatView(APIView):
         wants_animation = any(w in lower for w in ["animation", "visual", "show me", "animate", "diagram", "draw", "flowchart", "step by step"])
         shows_struggle = any(w in lower for w in ["don't understand", "confused", "struggling", "why", "hard", "lost", "fail", "not sure", "how does", "what is", "explain", "detail", "predictable"])
 
-        # 1. Security & Edge Case Defense: System prompt, credential & secret leaks
+        # 1. Security & Edge Case Defense: System prompt, credential leaks, and adversarial prompt injections
+        from services.domain_guard_service import DomainGuardService
+        guard_res = DomainGuardService.evaluate_input_safety_and_domain(message, skill_name)
+
         secret_leak_indicators = [
             "system prompt", "system instruction", "reveal prompt", "ignore previous instructions",
             "api_key", "apikey", "secret_key", "secret key", "database_url", "aws_secret",
             "openrouter_api_key", "env var", "environment variable", "credentials", "auth token"
         ]
-        if any(sec in lower for sec in secret_leak_indicators):
+        if not guard_res.get("is_safe") or any(sec in lower for sec in secret_leak_indicators):
             reply = (
                 f"I am your dedicated SkillBridge Engineering Mentor for {skill_name}. My role is to help you "
                 "master software engineering concepts, understand architectural trade-offs, and pass your practical deliverables. "
-                "I cannot disclose internal system prompts, tokens, or infrastructure credentials. "
+                "I cannot disclose internal system prompts, tokens, or execute adversarial prompt overrides. "
                 f"Let's stay focused on mastering {skill_name} and building production-ready deliverables!"
             )
             socratic_q = f"What specific architectural question can I help guide you on regarding {skill_name}?"
             return reply, socratic_q, None, None, "system_guard", "Security Guardrail"
 
-        # 2. Out-of-Context Boundary Filter
+        # 2. Out-of-Context Boundary Filter: Gracefully deflect unrelated off-topic inquiries
         unrelated_indicators = [
-            "recipe", "cooking", "cake", "bake", "pizza", "celebrity", "hollywood", "horoscope",
-            "poem about", "write a song", "football score", "presidential election", "medical diagnosis"
+            "recipe", "cooking", "cake", "bake", "pizza", "dinner", "burger", "pasta", "dessert",
+            "celebrity", "hollywood", "actor", "actress", "horoscope", "astrology", "zodiac",
+            "poem about", "write a song", "lyrics", "football score", "basketball", "soccer",
+            "presidential election", "politics", "political", "medical diagnosis", "symptoms", "prescription",
+            "cryptocurrency trading", "stock price prediction", "invest in crypto", "legal advice", "lawsuit", "movie review"
         ]
-        if any(u in lower for u in unrelated_indicators):
+        if any(u in lower for u in unrelated_indicators) or (not guard_res.get("is_tech_domain") and guard_res.get("status") == "domain_in_development"):
             reply = (
                 f"I am focused specifically as your SkillBridge Engineering Mentor for {skill_name}. To help you reach "
                 f"technical role readiness and excel in practical interviews, let's keep our session centered on {skill_name} "
@@ -560,53 +577,162 @@ class MicroLessonChatView(APIView):
         combined = f"{skill_name} {message}".lower()
         domain = self._detect_domain(skill_name, message)
 
-        if domain == "ml_ai" or any(w in combined for w in ["pytorch", "torch", "tensor", "gradient", "autograd", "loss", "backprop", "neural", "deep learning"]):
+        # 1. TypeScript / JavaScript / Frontend / Fullstack
+        if any(w in combined for w in ["typescript", "ts", "javascript", "zod", "z.infer", "interface", "type check", "transpil", "ast", "type erasure"]):
+            if any(w in combined for w in ["zod", "z.infer", "validation", "schema", "safeparse", "boundary", "parse"]):
+                return {
+                    "type": "custom_pipeline",
+                    "title": f"Interactive Concept Animation: {skill_name} Runtime Schema Validation & Type Inference",
+                    "description": "Watch how untrusted client payloads are verified at runtime via Zod schemas without sacrificing TypeScript compile-time type safety.",
+                    "nodes": [
+                        {"id": "n1", "name": "Raw Client Payload", "detail": "Untrusted JSON Network Packet", "icon": "Code", "status_text": "Unverified shape"},
+                        {"id": "n2", "name": "Zod Schema (z.infer)", "detail": "Runtime Type Inference Definition", "icon": "Layers", "status_text": "Evaluating shape"},
+                        {"id": "n3", "name": "safeParse() Perimeter", "detail": "Non-throwing Boundary Guard", "icon": "ShieldCheck", "status_text": "Strict validation"},
+                        {"id": "n4", "name": "Type-Safe Domain Handler", "detail": "Guaranteed Clean Model Entity", "icon": "CheckCircle2", "status_text": "100% Type-Sound"}
+                    ],
+                    "steps": [
+                        "Step 1: Client submits raw untrusted JSON payload over the HTTP network boundary.",
+                        "Step 2: Zod schema (z.infer<typeof Schema>) dynamically infers compile-time TypeScript types from runtime schema contracts.",
+                        "Step 3: safeParse() tests input fields, formats, and non-empty constraints without throwing unhandled exceptions.",
+                        "Step 4: Business logic controller receives guaranteed type-safe domain entities, eliminating runtime TypeError bugs."
+                    ]
+                }
             return {
-                "type": "ml_training_loop",
-                "title": f"Interactive Deep Learning Flow: {skill_name} Forward & Backward Pass",
-                "description": "Visualize how batch tensors propagate forward through layers, calculate loss, and update weights via Autograd."
+                "type": "custom_pipeline",
+                "title": f"Interactive Concept Animation: {skill_name} Execution & Transpilation Flow",
+                "description": "Watch how TypeScript source code undergoes static AST analysis and type erasure to produce an optimized JavaScript runtime bundle.",
+                "nodes": [
+                    {"id": "n1", "name": "Source Code (.ts)", "detail": "Interface & Generic Contracts", "icon": "Code", "status_text": "Strict mode"},
+                    {"id": "n2", "name": "AST & Type Checker", "detail": "Compile-time Type Guard", "icon": "ShieldCheck", "status_text": "Proving types"},
+                    {"id": "n3", "name": "Transpiler (tsc)", "detail": "Type Erasure & AST Node Lowering", "icon": "Cpu", "status_text": "Erasing types"},
+                    {"id": "n4", "name": "Production Bundle (.js)", "detail": "Zero Runtime Overhead", "icon": "CheckCircle2", "status_text": "V8 Optimized"}
+                ],
+                "steps": [
+                    "Step 1: Developer writes strict TypeScript code with types, interfaces, and generics.",
+                    "Step 2: TypeScript type checker builds Abstract Syntax Tree and proves type soundness before execution.",
+                    "Step 3: Transpiler strips type annotations entirely (type erasure), emitting standard ECMAScript.",
+                    "Step 4: Node.js V8 engine executes lightweight JavaScript with zero runtime memory penalty."
+                ]
             }
+
+        # 2. Machine Learning / PyTorch / Deep Learning
+        elif domain == "ml_ai" or any(w in combined for w in ["pytorch", "torch", "tensor", "gradient", "autograd", "loss", "backprop", "neural", "deep learning"]):
+            return {
+                "type": "custom_pipeline",
+                "title": f"Interactive Deep Learning Flow: {skill_name} Forward & Backward Pass",
+                "description": "Visualize how batch tensors propagate forward through layers, calculate loss, and update weights via Autograd.",
+                "nodes": [
+                    {"id": "n1", "name": "Batch DataLoader", "detail": "Pinned host memory tensor batches", "icon": "Layers", "status_text": "shape [B, D]"},
+                    {"id": "n2", "name": "Forward Pass (CUDA)", "detail": "Layer transformations & activations", "icon": "Cpu", "status_text": "Logits output"},
+                    {"id": "n3", "name": "Loss & Autograd ∇W", "detail": "loss.item() graph detachment", "icon": "GitBranch", "status_text": "Backward pass"},
+                    {"id": "n4", "name": "Optimizer Update", "detail": "Weight adjustment & zero_grad()", "icon": "CheckCircle2", "status_text": "Loss converged"}
+                ],
+                "steps": [
+                    "Step 1: DataLoader prepares batch tensors [B, In_Features] and transfers them to the compute device.",
+                    "Step 2: Input propagates through nn.Module layers and activation functions to compute prediction logits.",
+                    "Step 3: Criterion evaluates scalar penalty against ground truth labels; loss.item() detaches graph to prevent CUDA leaks.",
+                    "Step 4: Autograd computes gradient DAG (loss.backward()), optimizer updates weights, and zero_grad() clears buffers."
+                ]
+            }
+
+        # 3. Vector Search & RAG
         elif any(w in combined for w in ["vector", "embedding", "hnsw", "cosine", "nearest neighbor", "distance"]):
             return {
-                "type": "vector_search",
+                "type": "custom_pipeline",
                 "title": f"Interactive Vector Search: 2048-Dim Embedding & HNSW Cosine Distance",
-                "description": "Watch how a query vector traverses the HNSW graph to find nearest neighbors in sub-millisecond time."
+                "description": "Watch how a query vector traverses the HNSW graph to find nearest neighbors in sub-millisecond time.",
+                "nodes": [
+                    {"id": "n1", "name": "Raw Query Tokenizer", "detail": "Text chunking & token encoding", "icon": "Code", "status_text": "Tokens ready"},
+                    {"id": "n2", "name": "Embedding Model", "detail": "Transforms tokens into 2048-dim vector", "icon": "Cpu", "status_text": "Unit vector [2048]"},
+                    {"id": "n3", "name": "HNSW Graph Traversal", "detail": "Hierarchical multi-layer graph hop", "icon": "GitBranch", "status_text": "Sub-millisecond seek"},
+                    {"id": "n4", "name": "Cosine Ranker", "detail": "Computes (1 - cos θ) nearest neighbors", "icon": "CheckCircle2", "status_text": "Top-K Matches"}
+                ],
+                "steps": [
+                    "Step 1: User query string is tokenized and sanitized into context chunks.",
+                    "Step 2: Dense embedding model maps semantic query into normalized 2048-dimensional vector space.",
+                    "Step 3: HNSW index performs logarithmic graph hops across sparse layers to isolate nearest neighbor clusters.",
+                    "Step 4: Cosine distance ranking retrieves top-K semantic document chunks in under 5ms."
+                ]
             }
-        elif any(w in combined for w in ["boundary", "auth", "token", "perimeter", "sanitize", "validate", "unauthorized", "rejection", "check"]):
-            return {
-                "type": "boundary_check",
-                "title": f"Interactive Concept Animation: {skill_name} Verification Boundary",
-                "description": "Watch how requests are validated and rejected at the gateway perimeter before reaching the database."
-            }
+
+        # 4. Relational Databases & Indexing (PostgreSQL / SQL)
         elif any(w in combined for w in ["index", "btree", "b-tree", "performance", "slow", "fast", "scan", "lookup", "speed", "cardinality", "postgres", "sql"]):
             return {
-                "type": "index_btree_search",
-                "title": "Interactive Concept Animation: B-Tree Index Traversal vs Sequential Scan",
-                "description": "See how B-Tree index pointers eliminate disk I/O by navigating logarithmic tree branches."
+                "type": "custom_pipeline",
+                "title": f"Interactive Concept Animation: {skill_name} B-Tree Index Traversal vs Scan",
+                "description": "See how B-Tree index pointers eliminate disk I/O by navigating logarithmic tree branches.",
+                "nodes": [
+                    {"id": "n1", "name": "Connection Pool", "detail": "pgbouncer connection checkout", "icon": "Database", "status_text": "Active session"},
+                    {"id": "n2", "name": "Query Planner", "detail": "Cost estimation & index selection", "icon": "Cpu", "status_text": "Index scan chosen"},
+                    {"id": "n3", "name": "B-Tree Branch Hop", "detail": "Logarithmic tree descent O(log N)", "icon": "GitBranch", "status_text": "Direct leaf seek"},
+                    {"id": "n4", "name": "WAL & ACID Commit", "detail": "Tuple retrieval with zero full-table I/O", "icon": "CheckCircle2", "status_text": "1.4ms Latency"}
+                ],
+                "steps": [
+                    "Step 1: Client queries database through managed connection pool with parameterized query.",
+                    "Step 2: PostgreSQL query optimizer analyzes column statistics and selects B-Tree index scan over sequential scan.",
+                    "Step 3: Query engine descends root-to-leaf index blocks in 3 memory hops, bypassing 1M table rows.",
+                    "Step 4: Target row tuple is fetched directly from heap memory with zero disk bottleneck."
+                ]
             }
+
+        # 5. Concurrency / Transactions / Locks
         elif any(w in combined for w in ["concurrent", "race", "lock", "conflict", "deadlock", "acid", "transaction", "mutex", "isolation"]):
             return {
-                "type": "concurrency_lock",
-                "title": "Interactive Concept Animation: Concurrency, Mutex & Row Locks",
-                "description": "Visualize what happens when two threads hit conflicting state at the exact same millisecond."
+                "type": "custom_pipeline",
+                "title": f"Interactive Concept Animation: {skill_name} Concurrency, Mutex & Row Locks",
+                "description": "Visualize what happens when two threads hit conflicting state at the exact same millisecond.",
+                "nodes": [
+                    {"id": "n1", "name": "Parallel Invocations", "detail": "Two requests hit shared row at 00:00.001", "icon": "User", "status_text": "Concurrent clash"},
+                    {"id": "n2", "name": "Row Lock Perimeter", "detail": "SELECT ... FOR UPDATE serializes access", "icon": "ShieldCheck", "status_text": "Thread A Lock Held"},
+                    {"id": "n3", "name": "Mutex Wait Boundary", "detail": "Thread B safely queued; no dirty read", "icon": "Layers", "status_text": "Safely isolated"},
+                    {"id": "n4", "name": "Atomic Commit", "detail": "Thread A commits; Thread B resumes cleanly", "icon": "CheckCircle2", "status_text": "Zero Race Conditions"}
+                ],
+                "steps": [
+                    "Step 1: Two client requests execute concurrent mutations against the exact same record simultaneously.",
+                    "Step 2: Thread A acquires an exclusive row lock via SELECT ... FOR UPDATE within a transaction.",
+                    "Step 3: Thread B is held at the mutex boundary, preventing lost updates and dirty reads.",
+                    "Step 4: Thread A commits changes atomically; Thread B resumes against clean, consistent state."
+                ]
             }
-        elif any(w in combined for w in ["pipeline", "aws", "s3", "sqs", "lambda", "queue", "event", "cloud", "async", "worker"]):
+
+        # 6. Cloud & Event Pipelines (AWS / S3 / SQS / Docker)
+        elif any(w in combined for w in ["pipeline", "aws", "s3", "sqs", "lambda", "queue", "event", "cloud", "async", "worker", "docker", "container"]):
             return {
-                "type": "pipeline_flow",
-                "title": "Interactive Concept Animation: Cloud Event-Driven Pipeline (S3 + SQS + Lambda)",
-                "description": "Track how an uploaded deliverable file is stored in S3, enqueued in SQS, and processed by the evaluator."
+                "type": "custom_pipeline",
+                "title": f"Interactive Concept Animation: {skill_name} Cloud & Event-Driven Pipeline",
+                "description": f"Track how tasks are validated, enqueued, and processed reliably in {skill_name}.",
+                "nodes": [
+                    {"id": "n1", "name": "Ingress Gateway", "detail": "Client payload submission & signature", "icon": "Server", "status_text": "Received"},
+                    {"id": "n2", "name": "Asynchronous Queue", "detail": "Decoupled buffer & at-least-once delivery", "icon": "Layers", "status_text": "Enqueued"},
+                    {"id": "n3", "name": "Worker Sandbox", "detail": "Isolated processing & security check", "icon": "Cpu", "status_text": "Processing"},
+                    {"id": "n4", "name": "Persisted State", "detail": "Durable asset storage & event ack", "icon": "CheckCircle2", "status_text": "Complete"}
+                ],
+                "steps": [
+                    f"Step 1: Ingress gateway validates caller signature and accepts {skill_name} deliverable payload.",
+                    "Step 2: Event is serialized into a durable queue buffer, insulating downstream workers from spikes.",
+                    f"Step 3: Worker daemon pulls job, applies security isolation, and executes {skill_name} task logic.",
+                    "Step 4: Output is persisted to durable object storage and completion event is emitted."
+                ]
             }
-        elif "vector" in skill_name.lower():
-            return {
-                "type": "vector_search",
-                "title": f"Interactive Vector Search: 2048-Dim Embedding & HNSW Cosine Distance",
-                "description": "Watch how a query vector traverses the HNSW graph to find nearest neighbors in sub-millisecond time."
-            }
+
+        # 7. Dynamic Universal Context Pipeline (covers any other skill)
         else:
             return {
-                "type": "boundary_check",
-                "title": f"Interactive Concept Animation: {skill_name} Execution Flow",
-                "description": "Watch how input validation, business logic, and output assertions interact."
+                "type": "custom_pipeline",
+                "title": f"Interactive Concept Animation: {skill_name} Execution Pipeline",
+                "description": f"Visual walkthrough of input contract verification, perimeter guards, and domain execution for {skill_name}.",
+                "nodes": [
+                    {"id": "n1", "name": "Input Contract", "detail": f"Inbound {skill_name} schema payload", "icon": "Code", "status_text": "Packet Ingress"},
+                    {"id": "n2", "name": "Perimeter Guard", "detail": "Validation & sanitization checks", "icon": "ShieldCheck", "status_text": "Validating"},
+                    {"id": "n3", "name": "Core Logic Engine", "detail": f"Domain mutations & {skill_name} service", "icon": "Cpu", "status_text": "Executing"},
+                    {"id": "n4", "name": "Persisted Output", "detail": "Verified output contracts & persistence", "icon": "CheckCircle2", "status_text": "Committed"}
+                ],
+                "steps": [
+                    f"Step 1: Input payload reaches the {skill_name} service boundary.",
+                    f"Step 2: Perimeter guard validates schemas, constraints, and credentials before processing.",
+                    f"Step 3: Core {skill_name} business logic executes operations against application state.",
+                    "Step 4: Final response passes contract assertions and state is safely persisted."
+                ]
             }
 
     def _resolve_struggle_topic(self, skill_name: str, message: str) -> str:
@@ -1083,3 +1209,510 @@ class MicroLessonChatView(APIView):
         reply = f"{level_desc}{style_addon}"
         socratic_q = f"In your {skill_name} implementation, what key condition or input validation protects the system against unexpected errors?"
         return reply, socratic_q, concept_anim, struggle_topic
+
+
+class DynamicSyllabusGeneratorView(APIView):
+    """
+    POST /api/assessments/generate-syllabus/
+    Generates dynamic, personalized practical task divisions, rubric criteria,
+    and contextual concept animations using GeminiService.
+    Customizes by skill, target role, project deliverables, and experience level.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        skill_name = request.data.get("skill_name") or "TypeScript"
+        target_role = request.data.get("target_role") or "Junior Backend Developer"
+        project_title = request.data.get("project_title") or f"{skill_name} Practical Engineering Deliverable"
+        target_deliverables = request.data.get("target_deliverables") or []
+        experience_level = request.data.get("experience_level") or "intermediate"
+        learning_preference = request.data.get("learning_preference") or "visual"
+
+        # 1. Try Live AI Generation via GeminiService
+        try:
+            from services.gemini_service import GeminiService
+            gemini = GeminiService()
+            if gemini.is_configured():
+                prompt = (
+                    f"You are a Principal Software Engineer designing a personalized practical assessment syllabus, 5-division rubrics, and conceptual animation for an engineer.\n"
+                    f"Skill: {skill_name}\n"
+                    f"Target Role: {target_role}\n"
+                    f"Project Title: {project_title}\n"
+                    f"Target Deliverables: {target_deliverables}\n"
+                    f"Experience Level: {experience_level}\n"
+                    f"Learning Style: {learning_preference}\n\n"
+                    f"Generate a customized 5-step task syllabus and 5-criterion rubric that directly matches these target deliverables and role.\n"
+                    f"Also generate an interactive concept animation with 4 nodes that visualizes how {skill_name} actually executes in this project.\n"
+                    f"Respond ONLY with valid JSON with keys: title, skill_name, experience_level, syllabus_steps, rubric, concept_animation.\n"
+                    f"Each syllabus_step MUST have: step_number (1-5), field_key ('valid_test', 'invalid_test', 'auth_test', 'assertions', 'explanation'), "
+                    f"title, subtitle, target_file, points, starter_code.\n"
+                    f"Each rubric item MUST have: id (e.g. 'c1'), name (e.g. '1. Core Architecture'), pts (integer points e.g. 2), desc (description of verification).\n"
+                    f"concept_animation MUST have: type ('custom_pipeline'), title, description, nodes (array of 4 objects with id, name, detail, icon, status_text), steps (array of 4 descriptive strings)."
+                )
+                ai_res = gemini.generate_text(prompt, temperature=0.2, max_tokens=2500)
+                if ai_res.get("success") and ai_res.get("text"):
+                    text = ai_res["text"].strip()
+                    if "```json" in text:
+                        text = text.split("```json")[1].split("```")[0].strip()
+                    elif "```" in text:
+                        text = text.split("```")[1].split("```")[0].strip()
+                    parsed = json.loads(text)
+                    if "syllabus_steps" in parsed and "rubric" in parsed:
+                        normalized_rubric = []
+                        for idx, r in enumerate(parsed.get("rubric", [])):
+                            name = r.get("name") or r.get("criterion") or r.get("title") or r.get("criterion_name") or f"Criterion {idx+1}"
+                            pts = r.get("pts") or r.get("points") or r.get("score") or r.get("max_points") or 2
+                            desc = r.get("desc") or r.get("description") or r.get("detail") or f"Evaluates practical implementation of {name}."
+                            normalized_rubric.append({
+                                "id": r.get("id") or f"c{idx+1}",
+                                "name": name,
+                                "pts": int(pts) if str(pts).isdigit() else 2,
+                                "desc": desc
+                            })
+                        parsed["rubric"] = normalized_rubric
+                        # Persist dynamically synthesized rubric to AssessmentTask in PostgreSQL
+                        try:
+                            from django.utils.text import slugify
+                            AssessmentTask.objects.update_or_create(
+                                target_skill=skill_name,
+                                defaults={
+                                    "task_id": f"task_{slugify(skill_name) or 'dynamic'}",
+                                    "title": f"Practical Technical Assessment: {skill_name}",
+                                    "task_type": "technical_assessment",
+                                    "total_points": 10,
+                                    "instructions": f"Implement practical deliverable for {skill_name}.",
+                                    "rubric": normalized_rubric
+                                }
+                            )
+                        except Exception as cache_err:
+                            logger.warning(f"Could not cache syllabus rubric to DB: {cache_err}")
+                        return Response(parsed)
+        except Exception as e:
+            logger.warning("Dynamic syllabus Gemini generation fallback: %s", e)
+
+        # 2. Rich Domain-Tailored Fallback
+        result = self._get_tailored_syllabus(
+            skill_name=skill_name,
+            target_role=target_role,
+            project_title=project_title,
+            target_deliverables=target_deliverables,
+            experience_level=experience_level,
+            learning_preference=learning_preference
+        )
+        try:
+            from django.utils.text import slugify
+            if result.get("rubric"):
+                AssessmentTask.objects.update_or_create(
+                    target_skill=skill_name,
+                    defaults={
+                        "task_id": f"task_{slugify(skill_name) or 'dynamic'}",
+                        "title": f"Practical Technical Assessment: {skill_name}",
+                        "task_type": "technical_assessment",
+                        "total_points": 10,
+                        "instructions": f"Implement practical deliverable for {skill_name}.",
+                        "rubric": result["rubric"]
+                    }
+                )
+        except Exception:
+            pass
+        return Response(result)
+
+    def _get_tailored_syllabus(self, skill_name: str, target_role: str, project_title: str, target_deliverables: list, experience_level: str, learning_preference: str):
+        lower = skill_name.lower().strip()
+
+        # TypeScript Project Specific
+        if "typescript" in lower or "ts" in lower:
+            f1 = target_deliverables[0] if len(target_deliverables) > 0 else "src/models/task.ts"
+            f2 = target_deliverables[1] if len(target_deliverables) > 1 else "src/controllers/taskController.ts"
+            f3 = target_deliverables[2] if len(target_deliverables) > 2 else "src/routes/taskRoutes.ts"
+            return {
+                "title": project_title or "Type-Safe Task Management REST API",
+                "skill_name": skill_name,
+                "experience_level": experience_level,
+                "syllabus_steps": [
+                    {
+                        "step_number": 1,
+                        "field_key": "valid_test",
+                        "title": "Data Contracts & Runtime Schema Guard",
+                        "subtitle": f"Define static types and runtime validation in {f1}",
+                        "target_file": f1,
+                        "points": 2,
+                        "starter_code": f"/**\n * {f1}\n * TypeScript data contracts with strict runtime schema.\n */\nimport {{ z }} from 'zod';\n\nexport const TaskSchema = z.object({{\n  id: z.string().uuid(),\n  title: z.string().min(1, 'Title is required'),\n  completed: z.boolean().default(false),\n}});\n\nexport type Task = z.infer<typeof TaskSchema>;\n"
+                    },
+                    {
+                        "step_number": 2,
+                        "field_key": "invalid_test",
+                        "title": "Controller Business Logic & Boundary Handlers",
+                        "subtitle": f"Implement CRUD operations and typed error handling in {f2}",
+                        "target_file": f2,
+                        "points": 2,
+                        "starter_code": f"/**\n * {f2}\n * Type-safe controller handling state transitions and boundary exceptions.\n */\nimport {{ Request, Response }} from 'express';\nimport {{ TaskSchema, Task }} from '../models/task';\n\nexport class TaskController {{\n  async createTask(req: Request, res: Response): Promise<Response> {{\n    const parsed = TaskSchema.safeParse(req.body);\n    if (!parsed.success) {{\n      return res.status(400).json({{ error: parsed.error.format() }});\n    }}\n    return res.status(201).json(parsed.data);\n  }}\n}}\n"
+                    },
+                    {
+                        "step_number": 3,
+                        "field_key": "auth_test",
+                        "title": "Route Middleware & Security Typing",
+                        "subtitle": f"Mount Express routes with typed parameter guards in {f3}",
+                        "target_file": f3,
+                        "points": 3,
+                        "starter_code": f"/**\n * {f3}\n * Route definitions and typed request middleware.\n */\nimport {{ Router }} from 'express';\nimport {{ TaskController }} from '../controllers/taskController';\n\nconst router = Router();\nconst controller = new TaskController();\n\nrouter.post('/tasks', controller.createTask);\nexport default router;\n"
+                    },
+                    {
+                        "step_number": 4,
+                        "field_key": "assertions",
+                        "title": "Type Soundness & Integration Assertions",
+                        "subtitle": "Write Supertest/Jest assertions verifying contract schemas and zero type leaks",
+                        "target_file": "tests/task.spec.ts",
+                        "points": 2,
+                        "starter_code": "// Integration test verifying status codes and schema contracts\nimport request from 'supertest';\nimport app from '../src/app';\n\ndescribe('Task REST API Contract', () => {\n  it('rejects malformed payload with 400', async () => {\n    const res = await request(app).post('/tasks').send({});\n    expect(res.status).toBe(400);\n  });\n});\n"
+                    },
+                    {
+                        "step_number": 5,
+                        "field_key": "explanation",
+                        "title": "Architecture & Type-System Trade-Offs",
+                        "subtitle": "Explain compile-time vs runtime guarantees, AST erasure, and memory trade-offs",
+                        "target_file": "ARCHITECTURE.md",
+                        "points": 1,
+                        "starter_code": "Explain how TypeScript static types combined with Zod runtime boundary validation guarantee contract integrity without V8 engine runtime performance penalties."
+                    }
+                ],
+                "rubric": [
+                    {"id": "c1", "name": "1. Data Contracts & Static Typing", "pts": 2, "desc": f"Validates strict interface definitions and schema contracts in {f1}."},
+                    {"id": "c2", "name": "2. Business Logic & Boundary Guards", "pts": 2, "desc": f"Handles edge cases, safeParse, and exception safety in {f2}."},
+                    {"id": "c3", "name": "3. Route Middleware & Security", "pts": 3, "desc": f"Enforces authorization and typed routing in {f3}."},
+                    {"id": "c4", "name": "4. Integration Contract Assertions", "pts": 2, "desc": "Verifies API responses, status codes, and payload shapes."},
+                    {"id": "c5", "name": "5. Type Erasure & Architectural Rationale", "pts": 1, "desc": "Explains compile-time guarantees and runtime performance."}
+                ],
+                "concept_animation": {
+                    "type": "custom_pipeline",
+                    "title": "Interactive Concept Animation: TypeScript Execution & Transpilation Flow",
+                    "description": "Watch how TypeScript source code undergoes static AST analysis and type erasure to produce an optimized JavaScript runtime bundle.",
+                    "nodes": [
+                        {"id": "n1", "name": "Source Code (.ts)", "detail": "Interface & Generic Contracts", "icon": "Code", "status_text": "Strict mode"},
+                        {"id": "n2", "name": "AST & Type Checker", "detail": "Compile-time Type Guard", "icon": "ShieldCheck", "status_text": "Validating types"},
+                        {"id": "n3", "name": "Transpiler (tsc)", "detail": "AST Node Lowering", "icon": "Cpu", "status_text": "Erasing types"},
+                        {"id": "n4", "name": "Production Bundle (.js)", "detail": "Zero Runtime Overhead", "icon": "CheckCircle2", "status_text": "V8 Optimized"}
+                    ],
+                    "steps": [
+                        "Step 1: Developer writes strict TypeScript code with types, interfaces, and generics.",
+                        "Step 2: TypeScript type checker builds Abstract Syntax Tree and proves type soundness before execution.",
+                        "Step 3: Transpiler strips type annotations entirely (type erasure), emitting standard ECMAScript.",
+                        "Step 4: Node.js V8 engine executes lightweight JavaScript with zero runtime memory penalty."
+                    ]
+                }
+            }
+
+        # Docker / Containerization
+        if "docker" in lower or "container" in lower:
+            return {
+                "title": project_title or "Multi-Stage Production Containerization",
+                "skill_name": skill_name,
+                "experience_level": experience_level,
+                "syllabus_steps": [
+                    {
+                        "step_number": 1,
+                        "field_key": "valid_test",
+                        "title": "Multi-Stage Build & Dependency Isolation",
+                        "subtitle": "Define lightweight base image and separate build/runtime stages in Dockerfile",
+                        "target_file": "Dockerfile",
+                        "points": 2,
+                        "starter_code": "FROM python:3.12-slim AS builder\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install --no-cache-dir --prefix=/install -r requirements.txt\n\nFROM python:3.12-slim\nWORKDIR /app\nCOPY --from=builder /install /usr/local\nCOPY . /app\n"
+                    },
+                    {
+                        "step_number": 2,
+                        "field_key": "invalid_test",
+                        "title": "Non-Root User & Linux Isolation Perimeter",
+                        "subtitle": "Create dedicated unprivileged system user and set working permissions",
+                        "target_file": "Dockerfile",
+                        "points": 2,
+                        "starter_code": "RUN useradd -u 1001 -m appuser && chown -R appuser:appuser /app\nUSER appuser\n"
+                    },
+                    {
+                        "step_number": 3,
+                        "field_key": "auth_test",
+                        "title": "Networking, Environment & Healthcheck Directives",
+                        "subtitle": "Configure EXPOSE, environment defaults, and orchestrator health probes",
+                        "target_file": "Dockerfile",
+                        "points": 3,
+                        "starter_code": "EXPOSE 8000\nHEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \\\n    CMD curl -f http://localhost:8000/api/health/ || exit 1\nCMD [\"python\", \"manage.py\", \"runserver\", \"0.0.0.0:8000\"]\n"
+                    },
+                    {
+                        "step_number": 4,
+                        "field_key": "assertions",
+                        "title": "Docker Compose & Volume Persistence",
+                        "subtitle": "Define compose services, volume mounts, and restart policies",
+                        "target_file": "docker-compose.yml",
+                        "points": 2,
+                        "starter_code": "version: '3.8'\nservices:\n  app:\n    build: .\n    ports:\n      - '8000:8000'\n    environment:\n      - DATABASE_URL=postgres://user:pass@db:5432/app\n    depends_on:\n      - db\n"
+                    },
+                    {
+                        "step_number": 5,
+                        "field_key": "explanation",
+                        "title": "Container Security & Layer Caching Rationale",
+                        "subtitle": "Explain attack surface minimization, build layer ordering, and host isolation",
+                        "target_file": "CONTAINER_SECURITY.md",
+                        "points": 1,
+                        "starter_code": "Explain how multi-stage builds eliminate compiler tooling from the final image, and why unprivileged execution prevents container escapes."
+                    }
+                ],
+                "rubric": [
+                    {"id": "c1", "name": "1. Multi-Stage Dockerfile", "pts": 2, "desc": "Lightweight base image, layer caching, and separate build/runtime stages."},
+                    {"id": "c2", "name": "2. Non-Root Execution", "pts": 2, "desc": "Runs under dedicated unprivileged user for container security."},
+                    {"id": "c3", "name": "3. Networking & Healthcheck", "pts": 3, "desc": "Explicit EXPOSE 8000 and HEALTHCHECK instruction validating uptime."},
+                    {"id": "c4", "name": "4. Compose & Environment Config", "pts": 2, "desc": "Proper compose orchestration and volume mounts."},
+                    {"id": "c5", "name": "5. Container Isolation Rationale", "pts": 1, "desc": "Explanation of immutable containers and host volume sharing."}
+                ],
+                "concept_animation": {
+                    "type": "custom_pipeline",
+                    "title": "Interactive Concept Animation: Docker Containerization & Multi-Stage Build",
+                    "description": "Visual walkthrough of layer caching, artifact extraction, non-root user switching, and orchestrator health probing.",
+                    "nodes": [
+                        {"id": "n1", "name": "Dockerfile Directives", "detail": "Layered Specifications", "icon": "Code", "status_text": "Caching layers"},
+                        {"id": "n2", "name": "BuildKit Builder", "detail": "Compile & Dependency Purge", "icon": "Cpu", "status_text": "Stripping tools"},
+                        {"id": "n3", "name": "Unprivileged User", "detail": "UID 1001 cgroups Sandbox", "icon": "ShieldCheck", "status_text": "Root disabled"},
+                        {"id": "n4", "name": "Container Healthcheck", "detail": "0.0.0.0:8000 Probe", "icon": "CheckCircle2", "status_text": "Healthy 200 OK"}
+                    ],
+                    "steps": [
+                        "Step 1: Docker CLI parses multi-stage instructions and evaluates cached filesystem layers.",
+                        "Step 2: Builder stage compiles dependencies and discards heavy compiler packages.",
+                        "Step 3: Runtime container switches to unprivileged appuser (UID 1001) preventing privilege escalations.",
+                        "Step 4: Container daemon executes periodic curl healthchecks to verify production readiness."
+                    ]
+                }
+            }
+
+        # PostgreSQL / SQL Database
+        if "sql" in lower or "postgres" in lower or "database" in lower:
+            return {
+                "title": project_title or "Relational Schema Design & Query Optimization",
+                "skill_name": skill_name,
+                "experience_level": experience_level,
+                "syllabus_steps": [
+                    {
+                        "step_number": 1,
+                        "field_key": "valid_test",
+                        "title": "Relational Schema & Constraints DDL",
+                        "subtitle": "CREATE TABLE with primary keys, foreign keys, and check constraints",
+                        "target_file": "schema.sql",
+                        "points": 2,
+                        "starter_code": "CREATE TABLE orders (\n    order_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n    user_id VARCHAR(100) NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,\n    amount NUMERIC(10, 2) NOT NULL CHECK (amount > 0),\n    status VARCHAR(50) DEFAULT 'pending',\n    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()\n);\n"
+                    },
+                    {
+                        "step_number": 2,
+                        "field_key": "invalid_test",
+                        "title": "Safe Schema Migrations & Integrity",
+                        "subtitle": "Safe ALTER TABLE operations with non-blocking index additions",
+                        "target_file": "migrations/0002_add_index.sql",
+                        "points": 2,
+                        "starter_code": "ALTER TABLE orders ADD COLUMN IF NOT EXISTS tracking_code VARCHAR(100);\nCREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_user_created ON orders (user_id, created_at DESC);\n"
+                    },
+                    {
+                        "step_number": 3,
+                        "field_key": "auth_test",
+                        "title": "Parameterized Queries & Multi-Table Joins",
+                        "subtitle": "SQL query preventing injection and optimizing join cardinality",
+                        "target_file": "queries.sql",
+                        "points": 3,
+                        "starter_code": "SELECT o.order_id, o.amount, o.status, u.email\nFROM orders o\nJOIN users u ON o.user_id = u.user_id\nWHERE o.status = $1 AND o.created_at >= $2\nORDER BY o.created_at DESC\nLIMIT 20;\n"
+                    },
+                    {
+                        "step_number": 4,
+                        "field_key": "assertions",
+                        "title": "Indexing Strategy & EXPLAIN ANALYZE",
+                        "subtitle": "Verify B-Tree index scan replaces sequential table scans",
+                        "target_file": "explain.sql",
+                        "points": 2,
+                        "starter_code": "CREATE UNIQUE INDEX idx_user_active_order ON orders (user_id) WHERE status = 'pending';\nEXPLAIN ANALYZE SELECT * FROM orders WHERE user_id = $1;\n"
+                    },
+                    {
+                        "step_number": 5,
+                        "field_key": "explanation",
+                        "title": "ACID Integrity & Concurrency Rationale",
+                        "subtitle": "Justify transaction isolation levels, row locking, and durability guarantees",
+                        "target_file": "DB_ARCHITECTURE.md",
+                        "points": 1,
+                        "starter_code": "Explain how foreign key cascades ensure referential integrity, check constraints prevent negative balances, and compound indexes accelerate lookup latency under ACID isolation."
+                    }
+                ],
+                "rubric": [
+                    {"id": "c1", "name": "1. Relational Schema & Constraints", "pts": 2, "desc": "Primary keys, foreign keys with ON DELETE, and check constraints."},
+                    {"id": "c2", "name": "2. Schema Migration & Integrity", "pts": 2, "desc": "Safe migration steps and versioned schema alterations."},
+                    {"id": "c3", "name": "3. Complex Query & Parameterization", "pts": 3, "desc": "Parameterized joins, aggregations, and subqueries."},
+                    {"id": "c4", "name": "4. Indexing Strategy", "pts": 2, "desc": "B-Tree or GIN index for high-traffic lookup columns."},
+                    {"id": "c5", "name": "5. ACID & Data Integrity Rationale", "pts": 1, "desc": "Explains transaction isolation and concurrency protection."}
+                ],
+                "concept_animation": {
+                    "type": "custom_pipeline",
+                    "title": "Interactive Concept Animation: PostgreSQL Query Execution & Index Scan Flow",
+                    "description": "Visual walkthrough of connection pooling, cost-based query planner, B-tree index scan, and WAL disk commit.",
+                    "nodes": [
+                        {"id": "n1", "name": "Session Pool", "detail": "Neon / PgBouncer Pool", "icon": "Database", "status_text": "Acquired session"},
+                        {"id": "n2", "name": "Query Planner", "detail": "Cost Optimizer (Index Scan)", "icon": "Cpu", "status_text": "Skipping 1M rows"},
+                        {"id": "n3", "name": "Constraint Engine", "detail": "FK & Check Constraint Check", "icon": "ShieldCheck", "status_text": "ACID Validated"},
+                        {"id": "n4", "name": "WAL Persistence", "detail": "Write-Ahead Log fsync()", "icon": "CheckCircle2", "status_text": "Durable Commit"}
+                    ],
+                    "steps": [
+                        "Step 1: Application acquires pooled connection from Neon PostgreSQL pool.",
+                        "Step 2: Cost-based query optimizer selects B-tree index scan over sequential disk scan.",
+                        "Step 3: Constraint engine validates foreign keys and check rules before mutating buffer pages.",
+                        "Step 4: Write-Ahead Log (WAL) safely syncs transaction to durable storage."
+                    ]
+                }
+            }
+
+        # Git & Version Control
+        if "git" in lower:
+            return {
+                "title": project_title or "Professional Git Workflows & Atomic Commit Hygiene",
+                "skill_name": skill_name,
+                "experience_level": experience_level,
+                "syllabus_steps": [
+                    {
+                        "step_number": 1,
+                        "field_key": "valid_test",
+                        "title": "Atomic Staging & Conventional Commits",
+                        "subtitle": "Stage specific hunks with git add -p and write conventional commit messages",
+                        "target_file": "git_workflow.sh",
+                        "points": 2,
+                        "starter_code": "git checkout -b feature/order-idempotency\ngit add src/services/order.ts\ngit commit -m \"feat(order): implement idempotency key check to prevent duplicate charges\"\n"
+                    },
+                    {
+                        "step_number": 2,
+                        "field_key": "invalid_test",
+                        "title": "Branch Rebase & Interactive Squashing",
+                        "subtitle": "Keep linear Git history using git rebase -i and conflict resolution",
+                        "target_file": "git_rebase.sh",
+                        "points": 2,
+                        "starter_code": "git fetch origin main\ngit rebase origin/main\n# In case of conflicts: resolve, then:\ngit add .\ngit rebase --continue\n"
+                    },
+                    {
+                        "step_number": 3,
+                        "field_key": "auth_test",
+                        "title": "Pre-Commit Hooks & Quality Gates",
+                        "subtitle": "Configure husky/pre-commit for linting, secret scanning, and type checks",
+                        "target_file": ".husky/pre-commit",
+                        "points": 3,
+                        "starter_code": "#!/usr/bin/env sh\n. \"$(dirname -- \"$0\")/_/husky.sh\"\n\nnpx lint-staged\nnpx tsc --noEmit\n"
+                    },
+                    {
+                        "step_number": 4,
+                        "field_key": "assertions",
+                        "title": "Clean Pull Request & Review Checklist",
+                        "subtitle": "Create pull request template with test coverage and verification instructions",
+                        "target_file": ".github/PULL_REQUEST_TEMPLATE.md",
+                        "points": 2,
+                        "starter_code": "## Summary\n- Idempotency key verification\n\n## Verification\n- [x] Unit tests pass: `npm test`\n- [x] Type check passes: `npx tsc --noEmit`\n"
+                    },
+                    {
+                        "step_number": 5,
+                        "field_key": "explanation",
+                        "title": "Git Internal Objects & DAG Rationale",
+                        "subtitle": "Explain blobs, trees, commit objects, and merge vs rebase trade-offs",
+                        "target_file": "GIT_ARCHITECTURE.md",
+                        "points": 1,
+                        "starter_code": "Explain how Git represents files as content-addressable SHA-1 blobs, and why linear rebase histories improve bisect debugging."
+                    }
+                ],
+                "rubric": [
+                    {"id": "c1", "name": "1. Atomic Commits & Semantics", "pts": 2, "desc": "Clean conventional commit messages and single-purpose changes."},
+                    {"id": "c2", "name": "2. Linear Rebase & Conflict Handling", "pts": 2, "desc": "Rebasing against origin/main and resolving conflicts cleanly."},
+                    {"id": "c3", "name": "3. Automated Pre-Commit Gates", "pts": 3, "desc": "Linting, static typing, and security hooks before commit creation."},
+                    {"id": "c4", "name": "4. Pull Request Standards", "pts": 2, "desc": "Structured PR descriptions and test verification proof."},
+                    {"id": "c5", "name": "5. Git DAG & Object Model Rationale", "pts": 1, "desc": "Understanding of commit trees, references, and fast-forward merges."}
+                ],
+                "concept_animation": {
+                    "type": "custom_pipeline",
+                    "title": "Interactive Concept Animation: Git Working Tree to Remote DAG Flow",
+                    "description": "Visual walkthrough of Working Directory, Staging Index, Local Commit Tree, and Remote Branch Sync.",
+                    "nodes": [
+                        {"id": "n1", "name": "Working Tree", "detail": "Modified Source Files", "icon": "Code", "status_text": "Diffs detected"},
+                        {"id": "n2", "name": "Staging Index", "detail": "git add (SHA-1 Blobs)", "icon": "Layers", "status_text": "Staged for commit"},
+                        {"id": "n3", "name": "Local Commit DAG", "detail": "Immutable Tree Pointer", "icon": "GitBranch", "status_text": "Signed commit"},
+                        {"id": "n4", "name": "Remote Tracking", "detail": "origin/main Fast-Forward", "icon": "CheckCircle2", "status_text": "Synced"}
+                    ],
+                    "steps": [
+                        "Step 1: File changes in working directory are analyzed by Git status.",
+                        "Step 2: Developer stages atomic changes; Git creates SHA-1 hashed blob objects in index.",
+                        "Step 3: Commit creates an immutable tree snapshot referencing the parent commit SHA.",
+                        "Step 4: Push syncs commits to remote tracking branch with zero conflict history."
+                    ]
+                }
+            }
+
+        # General Skill Fallback
+        return {
+            "title": project_title or f"Practical Technical Assessment: {skill_name}",
+            "skill_name": skill_name,
+            "experience_level": experience_level,
+            "syllabus_steps": [
+                {
+                    "step_number": 1,
+                    "field_key": "valid_test",
+                    "title": f"Core {skill_name} Implementation",
+                    "subtitle": f"Implement primary business logic and interfaces for {skill_name}",
+                    "target_file": target_deliverables[0] if target_deliverables else "src/deliverable.ts",
+                    "points": 2,
+                    "starter_code": f"# Core implementation for {skill_name}\n# Implement primary requirements with clean modularity\n"
+                },
+                {
+                    "step_number": 2,
+                    "field_key": "invalid_test",
+                    "title": "Edge Case & Input Boundary Handling",
+                    "subtitle": "Guard against malformed payloads, empty values, and boundary conditions",
+                    "target_file": target_deliverables[1] if len(target_deliverables) > 1 else "src/validator.ts",
+                    "points": 2,
+                    "starter_code": f"# Input validation and boundary error handling for {skill_name}\n"
+                },
+                {
+                    "step_number": 3,
+                    "field_key": "auth_test",
+                    "title": "Security, Lifecycle & Resource Management",
+                    "subtitle": "Ensure clean state teardown, authorization guards, and configuration safety",
+                    "target_file": target_deliverables[2] if len(target_deliverables) > 2 else "src/security.ts",
+                    "points": 3,
+                    "starter_code": f"# Security guards and resource management for {skill_name}\n"
+                },
+                {
+                    "step_number": 4,
+                    "field_key": "assertions",
+                    "title": "Verification Assertions & Output Contracts",
+                    "subtitle": "Write contract assertions verifying expected outputs and error propagation",
+                    "target_file": "tests/deliverable.spec.ts",
+                    "points": 2,
+                    "starter_code": f"# Test assertions verifying {skill_name} deliverables\n"
+                },
+                {
+                    "step_number": 5,
+                    "field_key": "explanation",
+                    "title": "Engineering Trade-offs & Architecture",
+                    "subtitle": "Explain architectural design decisions, maintainability, and scalability reasoning",
+                    "target_file": "ARCHITECTURE.md",
+                    "points": 1,
+                    "starter_code": f"Explain the architectural design and implementation approach for this {skill_name} deliverable."
+                }
+            ],
+            "rubric": [
+                {"id": "c1", "name": f"1. Core {skill_name} Implementation", "pts": 2, "desc": f"Functional implementation of {skill_name} deliverable."},
+                {"id": "c2", "name": "2. Edge Cases & Boundary Handling", "pts": 2, "desc": "Boundary condition checking and robust exception safety."},
+                {"id": "c3", "name": "3. Security & Resource Guards", "pts": 3, "desc": "Input sanitization, credential handling, or permission checks."},
+                {"id": "c4", "name": "4. Output Verification & Contracts", "pts": 2, "desc": "Idiomatic conventions, modularity, and clean structure."},
+                {"id": "c5", "name": "5. Engineering Rationale", "pts": 1, "desc": "Trade-off analysis, maintainability, and scalability reasoning."}
+            ],
+            "concept_animation": {
+                "type": "custom_pipeline",
+                "title": f"Interactive Concept Animation: {skill_name} Execution Flow",
+                "description": f"Visual walkthrough of input contract, boundary guards, execution logic, and verified outputs in {skill_name}.",
+                "nodes": [
+                    {"id": "n1", "name": "Input Contract", "detail": "Parameter Specifications", "icon": "Code", "status_text": "Parsed"},
+                    {"id": "n2", "name": "Perimeter Guard", "detail": "Boundary Validation", "icon": "ShieldCheck", "status_text": "Sanitizing"},
+                    {"id": "n3", "name": "Core Service", "detail": f"{skill_name} Processing", "icon": "Cpu", "status_text": "Executing"},
+                    {"id": "n4", "name": "Verified Output", "detail": "Contract Adherence", "icon": "CheckCircle2", "status_text": "Passed 10/10"}
+                ],
+                "steps": [
+                    f"Step 1: Input arguments and environment settings for {skill_name} are initialized.",
+                    f"Step 2: Boundary validation guards inspect incoming requests, rejecting malformed inputs.",
+                    f"Step 3: Core {skill_name} logic executes state mutations under safe isolation boundaries.",
+                    f"Step 4: Contract assertions verify responses, guaranteeing production reliability."
+                ]
+            }
+        }

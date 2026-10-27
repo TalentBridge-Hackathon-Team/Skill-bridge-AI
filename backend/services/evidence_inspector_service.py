@@ -636,9 +636,50 @@ class EvidenceInspectorService:
                             logger.warning(f"OpenRouter model '{model}' JSON parse error: {parse_err}. Raw text: {raw_text[:150]}")
                 else:
                     logger.warning(f"OpenRouter model '{model}' returned HTTP {res.status_code}: {res.text[:150]}")
+                    if "free-models-per-day" in res.text or res.status_code == 429:
+                        break
             except Exception as e:
                 logger.warning(f"OpenRouter model '{model}' skipped during verification: {e}")
                 continue
+
+        # Cascade to Google Gemini API for live code audit
+        try:
+            from services.gemini_service import gemini_service
+            if gemini_service.is_configured():
+                logger.info("Routing code inspection to Google Gemini (%s)", gemini_service.model)
+                gem_res = gemini_service.generate_text(
+                    prompt=prompt,
+                    system_prompt=(
+                        "You are a rigorous code verification AI. Analyze the repository evidence and "
+                        "respond strictly in valid JSON format with keys: verification_score, suggested_status, "
+                        "has_automated_tests, detected_technologies, strengths, recommendations, summary_rationale."
+                    ),
+                    temperature=0.1,
+                    max_tokens=1500
+                )
+                if gem_res.get("success") and gem_res.get("text"):
+                    clean_text = gem_res["text"].strip()
+                    if clean_text.startswith("```json"):
+                        clean_text = clean_text[7:]
+                    if clean_text.startswith("```"):
+                        clean_text = clean_text[3:]
+                    if clean_text.endswith("```"):
+                        clean_text = clean_text[:-3]
+                    parsed = json.loads(clean_text.strip())
+                    if "verification_score" in parsed:
+                        return {
+                            "verification_score": int(parsed.get("verification_score", 50)),
+                            "suggested_status": parsed.get("suggested_status", "unverified"),
+                            "has_automated_tests": bool(parsed.get("has_automated_tests", False)),
+                            "detected_technologies": parsed.get("detected_technologies", []),
+                            "strengths": parsed.get("strengths", [f"Active GitHub implementation for {skill_name}"]),
+                            "recommendations": parsed.get("recommendations", ["Add automated test suite."]),
+                            "summary_rationale": parsed.get("summary_rationale", f"Verified repository evidence for {skill_name}."),
+                            "evaluation_mode": "ai_llm",
+                            "model_used": gem_res.get("model", f"google/{gemini_service.model}"),
+                        }
+        except Exception as gem_err:
+            logger.warning(f"Gemini code inspection error: {gem_err}")
 
         # Deterministic Heuristic Fallback Engine
         return self._heuristic_evidence_evaluation(
@@ -912,9 +953,64 @@ class EvidenceInspectorService:
                                 importance=importance,
                                 role_title=role_title
                             )
+                else:
+                    if "free-models-per-day" in res.text or res.status_code == 429:
+                        break
             except Exception as e:
                 logger.info(f"OpenRouter advisor skipped for {model}: {e}")
                 continue
+
+        # Cascade to Google Gemini API for personalized remediation advice
+        try:
+            from services.gemini_service import gemini_service
+            if gemini_service.is_configured():
+                logger.info("Routing remediation advice to Google Gemini (%s)", gemini_service.model)
+                gem_res = gemini_service.generate_text(
+                    prompt=prompt,
+                    system_prompt=(
+                        f"You are a Senior Engineering Hiring Manager and Technical Mentor. "
+                        f"Candidate is at '{experience_level}' level aiming for '{role_title}'. "
+                        f"Output strictly valid JSON with interview_focus_questions, hands_on_project_exercise, "
+                        f"practice_project_options, and recommended_deliverables."
+                    ),
+                    temperature=0.2,
+                    max_tokens=1500
+                )
+                if gem_res.get("success") and gem_res.get("text"):
+                    clean_text = gem_res["text"].strip()
+                    if clean_text.startswith("```json"):
+                        clean_text = clean_text[7:]
+                    if clean_text.startswith("```"):
+                        clean_text = clean_text[3:]
+                    if clean_text.endswith("```"):
+                        clean_text = clean_text[:-3]
+                    parsed = json.loads(clean_text.strip())
+                    if "interview_focus_questions" in parsed and parsed.get("practice_project_options"):
+                        advice = {
+                            "success": True,
+                            "skill_name": skill_name,
+                            "experience_level": experience_level,
+                            "role_title": role_title,
+                            "remediation_hours": budget,
+                            "interview_focus_questions": parsed.get("interview_focus_questions", []),
+                            "hands_on_project_exercise": parsed.get("hands_on_project_exercise", f"Calibrated {skill_name} implementation project"),
+                            "practice_project_options": parsed.get("practice_project_options", []),
+                            "recommended_deliverables": parsed.get("recommended_deliverables", []),
+                            "advisor_mode": "ai_llm",
+                            "model_used": gem_res.get("model", f"google/{gemini_service.model}")
+                        }
+                        return self._enrich_with_track_recommendation(
+                            advice=advice,
+                            experience_level=experience_level,
+                            skill_status=skill_status,
+                            remediation_hours=budget,
+                            days_remaining=days_remaining,
+                            feasibility_status=feasibility_status,
+                            importance=importance,
+                            role_title=role_title
+                        )
+        except Exception as gem_adv_err:
+            logger.warning(f"Gemini remediation advice error: {gem_adv_err}")
 
         # Level-Calibrated Domain Specialized Fallback Catalog
         fallback_advice = self._get_domain_specialized_advice(

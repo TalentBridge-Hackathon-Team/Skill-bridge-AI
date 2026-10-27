@@ -4,6 +4,15 @@ import SkillGapPage from '../pages/SkillGapPage';
 import { skillGapService } from '../services/skillGapService';
 import { MOCK_TARGET_ROLES } from '../services/mockSkillGapData';
 
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'usr_demo_001', name: 'Demo User', email: 'demo@example.com' },
+    token: 'mock-token',
+    isAuthenticated: true
+  }),
+  AuthProvider: ({ children }: any) => children
+}));
+
 describe('SkillGapPage Component (Member 3)', () => {
   const mockAnalysisResponse = {
     role: MOCK_TARGET_ROLES[0],

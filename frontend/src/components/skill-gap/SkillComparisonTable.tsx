@@ -11,12 +11,14 @@ import {
 } from 'lucide-react';
 import StatusBadge from '../StatusBadge';
 import type { TraceableMatchResult } from '../../utils/skillGapCalculations';
+import { skillGapService } from '../../services/skillGapService';
 
 interface SkillComparisonTableProps {
   results: TraceableMatchResult[];
   onSelectSkill: (skill: TraceableMatchResult) => void;
   onOpenLinkModal: (skillName: string) => void;
   onNavigateTab: (tab: string) => void;
+  targetRoleId?: string;
   daysRemaining?: number;
   studyHoursPerWeek?: number;
   onUpdateRequirementPriority?: (requirementId: string, newPriority: 'High' | 'Medium' | 'Low') => Promise<void>;
@@ -34,6 +36,7 @@ export default function SkillComparisonTable({
   onSelectSkill,
   onOpenLinkModal,
   onNavigateTab,
+  targetRoleId,
   daysRemaining,
   studyHoursPerWeek: _studyHoursPerWeek,
   onUpdateRequirementPriority: _onUpdateRequirementPriority,
@@ -540,6 +543,14 @@ export default function SkillComparisonTable({
                         type="button"
                         onClick={e => {
                           e.stopPropagation();
+                          if (typeof window !== 'undefined') {
+                            const url = new URL(window.location.href);
+                            url.searchParams.set('tab', 'assessment');
+                            url.searchParams.set('skill', item.skill_name);
+                            if (targetRoleId) url.searchParams.set('role', targetRoleId);
+                            window.history.replaceState({}, '', url.toString());
+                          }
+                          if (targetRoleId) skillGapService.setSelectedRole(targetRoleId);
                           onNavigateTab('assessment');
                         }}
                         className="inline-flex items-center gap-1 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-xs"
@@ -554,6 +565,14 @@ export default function SkillComparisonTable({
                       type="button"
                       onClick={e => {
                         e.stopPropagation();
+                        if (typeof window !== 'undefined') {
+                          const url = new URL(window.location.href);
+                          url.searchParams.set('tab', 'assessment');
+                          url.searchParams.set('skill', item.skill_name);
+                          if (targetRoleId) url.searchParams.set('role', targetRoleId);
+                          window.history.replaceState({}, '', url.toString());
+                        }
+                        if (targetRoleId) skillGapService.setSelectedRole(targetRoleId);
                         onNavigateTab('assessment');
                       }}
                       className="inline-flex items-center gap-1 rounded-xl bg-slate-900 dark:bg-white px-3 py-1.5 text-xs font-semibold text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors shadow-xs"

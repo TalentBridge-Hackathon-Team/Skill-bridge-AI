@@ -27,6 +27,7 @@ import {
   evaluateAdaptiveCapacity,
   updateDeadlineTimestamp
 } from '../utils/horizonCapacityEngine';
+import { useAuth } from '../context/AuthContext';
 
 interface RoadmapPageProps {
   setActiveTab: (tab: string) => void;
@@ -137,6 +138,9 @@ const buildTasksFromSkillGaps = (
 };
 
 export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
+  const { user } = useAuth();
+  const currentUserId = user ? String(user.id) : undefined;
+
   // Target Role & Skill Gap State (Correlated with Assessment & Job Analysis)
   const [roles, setRoles] = useState<TargetRoleOption[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<string>('role_junior_backend');
@@ -190,7 +194,8 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
 
       // In background, cross-check /api/roadmap/ if available
       try {
-        fetch(resolveEndpoint(`/api/roadmap/?user_id=usr_demo_001&deadline_days=${days}&daily_available=${dailyHours}`))
+        const effectiveUser = currentUserId || 'usr_demo_001';
+        fetch(resolveEndpoint(`/api/roadmap/?user_id=${effectiveUser}&deadline_days=${days}&daily_available=${dailyHours}`))
           .then(r => r.ok ? r.json() : null)
           .then(roadmapData => {
             if (roadmapData && Array.isArray(roadmapData.tasks)) {
@@ -220,7 +225,7 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
     let isCancelled = false;
     setIsLoadingRoadmap(true);
 
-    skillGapService.getTargetRoles().then(async (loadedRoles) => {
+    skillGapService.getTargetRoles(currentUserId).then(async (loadedRoles) => {
       if (isCancelled) return;
       setRoles(loadedRoles);
       const activeRoleId = (loadedRoles || []).find(r => r.id === skillGapService.getSelectedRoleId())?.id || loadedRoles[0]?.id || 'role_junior_backend';
@@ -233,7 +238,7 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
     });
 
     return () => { isCancelled = true; };
-  }, []);
+  }, [currentUserId]);
 
   // Listen for assessment passing events and window focus
   useEffect(() => {
@@ -409,7 +414,7 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: 'usr_demo_001',
+          user_id: currentUserId || 'usr_demo_001',
           deadline_days: deadlineDays,
           daily_available_hours: dailyAvailableHours,
           rebalance_priority: true

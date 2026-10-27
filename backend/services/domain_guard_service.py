@@ -121,14 +121,14 @@ class DomainGuardService:
 
     # Suspicious prompt injection and adversarial patterns
     PROMPT_INJECTION_PATTERNS = [
-        r"ignore\s+(?:all\s+)?previous\s+instructions",
-        r"ignore\s+(?:all\s+)?prior\s+instructions",
-        r"system\s+(?:override|prompt)",
-        r"you\s+are\s+now\s+dan",
-        r"developer\s+mode",
-        r"jailbreak",
-        r"mark\s+(?:all\s+)?(?:as\s+)?(?:100%|verified|demonstrated)",
-        r"give\s+me\s+(?:a\s+)?10/10",
+        r"(?:disregard|ignore|bypass|forget)\s+(?:all\s+)?(?:previous|prior|system|above|earlier)\s+(?:instructions|rules|prompts|guidelines|constraints)",
+        r"(?:you\s+are\s+now|act\s+as|roleplay\s+as|pretend\s+to\s+be)\s+(?:dan|unrestricted|unfiltered|jailbroken|an\s+evil|developer\s+mode)",
+        r"(?:reveal|print|display|output|show|repeat)\s+(?:your\s+)?(?:system\s+prompt|initial\s+instructions|system\s+instructions|hidden\s+prompt)",
+        r"(?:system\s+override|system\s+prompt\s+leak)",
+        r"(?:developer\s+mode\s+enabled|jailbreak\s+active)",
+        r"(?:mark\s+(?:all\s+)?(?:as\s+)?(?:100%|verified|demonstrated)|assign\s+(?:me\s+)?10\/10|give\s+me\s+(?:a\s+)?10\/10|ignore\s+rubric)",
+        r"(?:<\|im_start\|>|<\|endoftext\|>|\[INST\]|\[SYSTEM\]|<<SYS>>)",
+        r"(?:api_key|secret_key|database_url|aws_secret_access_key)\s*[:=]",
         r"drop\s+table",
         r"union\s+select",
         r"<script[\s\S]*?>[\s\S]*?<\/script>",

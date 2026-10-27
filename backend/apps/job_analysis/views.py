@@ -90,19 +90,20 @@ class JobAnalysisListCreateView(APIView):
     GET  /api/job-analyses/   List all analyses for the authenticated user
     POST /api/job-analyses/   Create analysis + extract requirements
     """
+    permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get(self, request):
-        user_id = request.query_params.get("user_id")
-        if user_id:
-            analyses = JobAnalysis.objects.filter(user_id=user_id).order_by('-created_at')
-        else:
-            analyses = JobAnalysis.objects.filter(user_id__in=["usr_demo_001", "demo_user"]).order_by('-created_at')
+        query_user = request.query_params.get("user_id")
+        auth_user = _get_user_id(request)
+        candidates = {"usr_demo_001", "demo_user"}
+        if query_user:
+            candidates.add(str(query_user))
+        if auth_user:
+            candidates.add(str(auth_user))
+        analyses = JobAnalysis.objects.filter(user_id__in=list(candidates)).order_by('-created_at')
         serializer = JobAnalysisSerializer(analyses, many=True)
         return Response(serializer.data)
-        user_id = _get_user_id(request)
-        analyses = JobAnalysis.objects.filter(user_id=user_id).order_by("-created_at")
-        return Response(JobAnalysisSerializer(analyses, many=True).data)
 
     def post(self, request):
         # ── 1. Validate inputs ───────────────────────────────────────────────
@@ -118,8 +119,39 @@ class JobAnalysisListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        role_title = request.data.get("role_title") or request.data.get("title") or "Junior Backend Developer"
+        role_title = request.data.get("role_title") or request.data.get("title")
+        if not role_title and raw_job_text and len(raw_job_text.strip()) < 80 and "\n" not in raw_job_text.strip():
+            role_title = raw_job_text.strip()
+        if not role_title:
+            role_title = "Junior Backend Developer"
         mode = request.data.get("mode", "job_specific")
+
+        try:
+            job_text = validate_job_text(raw_job_text, has_image=bool(job_image)) if raw_job_text else ""
+            validate_job_image(job_image)
+            days_remaining = validate_days_remaining(raw_days)
+            study_hours = validate_study_hours(raw_hours)
+        except ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+
+        # Multimodal OCR screenshot extraction if an image was uploaded
+        if job_image:
+            try:
+                from services.rag_multimodal_service import RAGMultimodalService
+                multimodal_service = RAGMultimodalService()
+                extracted_image_text = multimodal_service.extract_text_from_job_image(job_image)
+                if extracted_image_text and extracted_image_text.strip():
+                    if job_text:
+                        job_text = f"Target Role / Context: {job_text}\n\nJob Posting Content from Screenshot:\n{extracted_image_text.strip()}"
+                    else:
+                        job_text = extracted_image_text.strip()
+            except Exception as img_err:
+                logger.warning(f"Failed to extract image text: {img_err}")
+                if not job_text:
+                    job_text = "(Job screenshot provided for requirement extraction)"
+
+        if not job_text:
+            job_text = f"Target Role: {role_title}"
 
         # Evaluate safety & domain support
         safety_check = domain_guard.evaluate_input_safety_and_domain(job_text, role_title)
@@ -144,31 +176,17 @@ class JobAnalysisListCreateView(APIView):
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY
             )
 
-        # Extract requirements using OpenRouter LLM (with deterministic rule engine validation)
-        extraction_data = openrouter_service.extract_job_requirements(job_text or "(Screenshot provided)", role_title=role_title)
-        extracted_reqs = extraction_data.get("requirements", [])
-        final_role_title = extraction_data.get("role_title", role_title)
-        summary = extraction_data.get("summary", f"Extracted requirements for {final_role_title}.")
-
-        analysis_id = f"job_{uuid.uuid4().hex[:8]}"
-        try:
-            job_text = validate_job_text(raw_job_text) if raw_job_text else \
-                       "(Image screenshot provided — text extraction pending)"
-            validate_job_image(job_image)
-            days_remaining = validate_days_remaining(raw_days)
-            study_hours = validate_study_hours(raw_hours)
-        except ValidationError as exc:
-            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
-
         # ── 2. Extract requirements (OpenRouter → rule engine) ───────────────
         try:
-            extracted = openrouter_service.extract_job_requirements(job_text)
+            extracted = openrouter_service.extract_job_requirements(job_text, role_title=role_title)
         except Exception as exc:
             logger.error("Extraction crashed unexpectedly: %s", exc)
             extracted = _rule_engine_extract(job_text)
 
         extracted_reqs = extracted.get("requirements", [])
         extraction_source = extracted.get("extraction_source", "rule_engine")
+        final_role_title = extracted.get("role_title", role_title)
+        summary = extracted.get("summary") or f"Extracted via {extraction_source}."
 
         # Safety net: if we still got nothing, force defaults
         if not extracted_reqs:
@@ -177,13 +195,6 @@ class JobAnalysisListCreateView(APIView):
             extraction_source = "rule_engine"
 
         # ── 3. Persist ───────────────────────────────────────────────────────
-        role_title = (
-            request.data.get("role_title") or
-            extracted.get("role_title") or
-            "Software Role"
-        )
-        summary = extracted.get("summary") or f"Extracted via {extraction_source}."
-
         analysis = JobAnalysis.objects.create(
             analysis_id=_generate_id("job"),
             user_id=user_id,
@@ -192,21 +203,27 @@ class JobAnalysisListCreateView(APIView):
             job_text=job_text or "(Image screenshot provided for extraction)",
             job_image=job_image,
             days_remaining=days_remaining,
-            study_hours_per_week=study_hours_per_week,
+            study_hours_per_week=study_hours,
             summary=summary,
             status="completed"
         )
 
-        for req_item in extracted_reqs:
-            mode="job_specific",
-            role_title=role_title,
-            job_text=job_text,
-            job_image=job_image,
-            days_remaining=days_remaining,
-            study_hours_per_week=study_hours,
-            summary=summary,
-            status="completed",
-        )
+        # Upload job screenshot to configured Amazon S3 cloud storage
+        if job_image:
+            try:
+                from services.aws_service import resume_pipeline
+                job_image.seek(0)
+                s3_res = resume_pipeline.upload_resume(
+                    file_source=job_image.read(),
+                    user_id=user_id,
+                    filename=getattr(job_image, "name", f"job_screenshot_{analysis.analysis_id}.png"),
+                    content_type=getattr(job_image, "content_type", "image/png")
+                )
+                job_image.seek(0)
+                if s3_res.get("success"):
+                    logger.info("Uploaded job screenshot to Amazon S3: %s", s3_res.get("s3_url"))
+            except Exception as s3_err:
+                logger.warning("Optional Amazon S3 screenshot upload: %s", s3_err)
 
         for req in extracted_reqs:
             Requirement.objects.create(
@@ -226,6 +243,7 @@ class JobAnalysisListCreateView(APIView):
 
 class JobAnalysisDetailView(APIView):
     """GET /api/job-analyses/{analysis_id}/"""
+    permission_classes = [AllowAny]
 
     def get(self, request, analysis_id):
         try:
@@ -243,31 +261,12 @@ class JobAnalysisRequirementsUpdateView(APIView):
     PATCH /api/job-analyses/{analysis_id}/requirements/
     Human review: full-replace the requirement set with the user's confirmed list.
     """
+    permission_classes = [AllowAny]
 
     def patch(self, request, analysis_id):
         try:
             analysis = JobAnalysis.objects.get(analysis_id=analysis_id)
         except JobAnalysis.DoesNotExist:
-            return Response({"error": "Job analysis not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        req_list = request.data.get("requirements", [])
-        if isinstance(req_list, list):
-            analysis.requirements.all().delete()
-            for r in req_list:
-                Requirement.objects.create(
-                    requirement_id=r.get("requirement_id") or r.get("id") or f"req_{uuid.uuid4().hex[:6]}",
-                    analysis=analysis,
-                    skill_name=r.get("skill_name"),
-                    category=r.get("category", "framework"),
-                    importance=r.get("importance", "required"),
-                    source_excerpt=r.get("source_excerpt", "User updated"),
-                    user_confirmed=True
-                )
-        return Response({
-            "message": "Requirements updated",
-            "analysis_id": analysis_id,
-            "analysis": JobAnalysisSerializer(analysis).data
-        })
             return Response(
                 {"error": f"Job analysis '{analysis_id}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
@@ -290,12 +289,12 @@ class JobAnalysisRequirementsUpdateView(APIView):
         created = []
         for r in cleaned:
             obj = Requirement.objects.create(
-                requirement_id=r["requirement_id"] or _generate_id("req"),
+                requirement_id=r.get("requirement_id") or r.get("id") or _generate_id("req"),
                 analysis=analysis,
                 skill_name=r["skill_name"],
-                category=r["category"],
-                importance=r["importance"],
-                source_excerpt=r["source_excerpt"],
+                category=r.get("category", "framework"),
+                importance=r.get("importance", "required"),
+                source_excerpt=r.get("source_excerpt", "User updated"),
                 user_confirmed=True,
             )
             created.append(obj)
@@ -304,6 +303,7 @@ class JobAnalysisRequirementsUpdateView(APIView):
             "message": "Requirements updated successfully.",
             "analysis_id": analysis_id,
             "requirements": RequirementSerializer(created, many=True).data,
+            "analysis": JobAnalysisSerializer(analysis).data
         })
 
 
@@ -316,6 +316,7 @@ class GoalListCreateView(APIView):
     GET  /api/goals/   List goals for the authenticated user
     POST /api/goals/   Create goal + map to best-matching skill profile
     """
+    permission_classes = [AllowAny]
 
     def get(self, request):
         user_id = _get_user_id(request)
@@ -343,7 +344,7 @@ class GoalListCreateView(APIView):
         logger.info("Goal mapped → '%s' (confidence=%s, keywords=%s)",
                     mapping.profile_id, mapping.confidence, mapping.matched_keywords)
 
-        # ── 3. Persist ───────────────────────────────────────────────────────
+        # ── 3. Persist Goal & JobAnalysis for Mode B ─────────────────────────
         goal = Goal.objects.create(
             goal_id=_generate_id("goal"),
             user_id=user_id,
@@ -354,12 +355,39 @@ class GoalListCreateView(APIView):
             study_hours_per_week=study_hours,
         )
 
+        analysis = JobAnalysis.objects.create(
+            analysis_id=_generate_id("analysis"),
+            user_id=user_id,
+            mode="goal_based",
+            role_title=mapping.role_title,
+            job_text=goal_text,
+            days_remaining=days_remaining,
+            study_hours_per_week=study_hours,
+            summary=f"Career Goal: {goal_text} ({mapping.role_title})",
+            status="completed"
+        )
+
+        created_reqs = []
+        for req_data in mapping.requirements:
+            r = Requirement.objects.create(
+                requirement_id=_generate_id("req"),
+                analysis=analysis,
+                skill_name=req_data["skill_name"],
+                category=req_data.get("category", "concepts"),
+                importance=req_data.get("importance", "required"),
+                source_excerpt=req_data.get("source_excerpt", f"Required for {mapping.role_title}"),
+                user_confirmed=True
+            )
+            created_reqs.append(r)
+
         # ── 4. Response includes requirements so frontend shows them immediately
         return Response({
             "goal": GoalSerializer(goal).data,
+            "analysis_id": analysis.analysis_id,
+            "analysis": JobAnalysisSerializer(analysis).data,
             "profile_id": mapping.profile_id,
             "role_title": mapping.role_title,
             "confidence": mapping.confidence,
             "warning": mapping.warning,
-            "requirements": mapping.requirements,
+            "requirements": RequirementSerializer(created_reqs, many=True).data if created_reqs else mapping.requirements,
         }, status=status.HTTP_201_CREATED)

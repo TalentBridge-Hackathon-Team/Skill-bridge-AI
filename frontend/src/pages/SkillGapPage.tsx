@@ -15,6 +15,7 @@ import SkillDetailModal from '../components/skill-gap/SkillDetailModal';
 import LinkEvidenceModal from '../components/skill-gap/LinkEvidenceModal';
 import EvidenceMatrixModal from '../components/skill-gap/EvidenceMatrixModal';
 import CustomCareerGoalModal from '../components/skill-gap/CustomCareerGoalModal';
+import { useAuth } from '../context/AuthContext';
 import {
   skillGapService,
   type SkillGapAnalysisResponse
@@ -28,6 +29,9 @@ interface SkillGapPageProps {
 }
 
 export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
+  const { user } = useAuth();
+  const currentUserId = user ? String(user.id) : 'demo_user';
+
   const [roles, setRoles] = useState<TargetRoleOption[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<string>('job_15f49367');
   const [activeModeFilter, setActiveModeFilter] = useState<'all' | 'job_specific' | 'goal_based'>('all');
@@ -61,7 +65,7 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
     if (!silent) setIsLoading(true);
     setError(null);
     try {
-      const data = await skillGapService.runAnalysis(roleId, customDays, customHours);
+      const data = await skillGapService.runAnalysis(roleId, customDays, customHours, currentUserId);
       setAnalysis(data);
       if (data.role) {
         setSelectedRoleId(data.role.id);
@@ -77,13 +81,13 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
     } finally {
       if (!silent) setIsLoading(false);
     }
-  }, []);
+  }, [currentUserId]);
 
   // Load roles on mount and auto-select active role from Neon DB
   useEffect(() => {
     let isCancelled = false;
 
-    skillGapService.getTargetRoles().then(loadedRoles => {
+    skillGapService.getTargetRoles(currentUserId).then(loadedRoles => {
       if (isCancelled) return;
       setRoles(loadedRoles);
       const activeId = skillGapService.getSelectedRoleId() || (loadedRoles && loadedRoles[0]?.id) || 'job_15f49367';
@@ -105,7 +109,7 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
     return () => {
       isCancelled = true;
     };
-  }, [loadAnalysis]);
+  }, [loadAnalysis, currentUserId]);
 
   // Synchronize when an assessment is passed
   useEffect(() => {
@@ -429,6 +433,7 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
             onSelectSkill={item => setSelectedSkill(item)}
             onOpenLinkModal={skillName => handleOpenLinkModal(skillName)}
             onNavigateTab={setActiveTab}
+            targetRoleId={selectedRoleId}
             daysRemaining={daysRemaining}
             studyHoursPerWeek={studyHoursPerWeek}
             onUpdateRequirementPriority={handleUpdateRequirementPriority}
@@ -446,6 +451,7 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
         onNavigateTab={setActiveTab}
         userExperienceLevel={analysis?.profile?.experience_level || 'Entry Level'}
         targetRoleTitle={analysis?.role?.role_title || 'AI & Machine Learning Engineer'}
+        targetRoleId={selectedRoleId}
         userId={analysis?.profile?.user_id || 'usr_demo_001'}
         feasibility={analysis?.feasibility}
       />

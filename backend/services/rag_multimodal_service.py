@@ -20,10 +20,23 @@ class RAGMultimodalService:
 
     def extract_text_from_job_image(self, image_file) -> str:
         """
-        Multimodal extraction: Processes image/screenshot bytes.
+        Multimodal extraction: Processes image/screenshot bytes using Google Gemini Vision.
         """
+        if not image_file:
+            return ""
         logger.info(f"Multimodal image extraction requested for {getattr(image_file, 'name', 'screenshot')}")
-        return "Scaffold extracted text from job screenshot."
+        try:
+            from .gemini_service import gemini_service
+            image_bytes = image_file.read() if hasattr(image_file, 'read') else bytes(image_file)
+            if hasattr(image_file, 'seek'):
+                image_file.seek(0)
+            mime_type = getattr(image_file, 'content_type', 'image/png')
+            text = gemini_service.extract_job_text_from_image(image_bytes=image_bytes, mime_type=mime_type)
+            if text:
+                return text
+        except Exception as e:
+            logger.warning(f"Vision extraction failed in RAGMultimodalService: {e}")
+        return ""
 
     def generate_resume_embeddings(self, resume_text: str) -> List[float]:
         """

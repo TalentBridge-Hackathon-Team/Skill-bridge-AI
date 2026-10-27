@@ -30,6 +30,7 @@ interface SkillDetailModalProps {
   onNavigateTab: (tab: string) => void;
   userExperienceLevel?: string;
   targetRoleTitle?: string;
+  targetRoleId?: string;
   userId?: string;
   feasibility?: any;
 }
@@ -41,6 +42,7 @@ export default function SkillDetailModal({
   onNavigateTab,
   userExperienceLevel = 'Entry Level',
   targetRoleTitle = 'AI & Machine Learning Engineer',
+  targetRoleId,
   userId = 'usr_demo_001',
   feasibility
 }: SkillDetailModalProps) {
@@ -147,6 +149,8 @@ export default function SkillDetailModal({
     if (!item) return;
     if (typeof window !== 'undefined') {
       const projectPayload = {
+        role_id: targetRoleId,
+        role_title: targetRoleTitle,
         skill_name: item.skill_name,
         track_index: trackIdx,
         track_name: opt.track,
@@ -160,13 +164,22 @@ export default function SkillDetailModal({
         level: opt.level
       };
       try {
+        if (targetRoleId) {
+          skillGapService.setSelectedRole(targetRoleId);
+        }
         if (window.localStorage) {
           window.localStorage.setItem('skillbridge_selected_practice_project', JSON.stringify(projectPayload));
+          if (targetRoleId) {
+            window.localStorage.setItem('skillbridge_selected_role', targetRoleId);
+          }
         }
         const url = new URL(window.location.href);
         url.searchParams.set('tab', 'assessment');
         url.searchParams.set('skill', item.skill_name);
         url.searchParams.set('track', String(trackIdx));
+        if (targetRoleId) {
+          url.searchParams.set('role', targetRoleId);
+        }
         window.history.replaceState({}, '', url.toString());
       } catch {}
     }
@@ -752,14 +765,23 @@ export default function SkillDetailModal({
                   type="button"
                   onClick={() => {
                     const activeOpt = aiAdvice?.practice_project_options?.[selectedProjectIndex];
+                    if (targetRoleId) {
+                      skillGapService.setSelectedRole(targetRoleId);
+                    }
                     if (activeOpt) {
                       handleStartProject(activeOpt, selectedProjectIndex);
                     } else {
                       if (typeof window !== 'undefined') {
                         try {
+                          if (targetRoleId && window.localStorage) {
+                            window.localStorage.setItem('skillbridge_selected_role', targetRoleId);
+                          }
                           const url = new URL(window.location.href);
                           url.searchParams.set('tab', 'assessment');
                           url.searchParams.set('skill', item.skill_name);
+                          if (targetRoleId) {
+                            url.searchParams.set('role', targetRoleId);
+                          }
                           window.history.replaceState({}, '', url.toString());
                         } catch {}
                       }

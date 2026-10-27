@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Sidebar, { navItems } from './components/Sidebar';
@@ -12,7 +13,7 @@ import SkillGapPage from './pages/SkillGapPage';
 import AssessmentPage from './pages/AssessmentPage';
 import RoadmapPage from './pages/RoadmapPage';
 
-function AppContent() {
+function AppShell() {
   const [activeTab, setActiveTab] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -24,7 +25,48 @@ function AppContent() {
     return 'dashboard';
   });
 
+  const { user, isAuthenticated, sessionExpired, clearSessionExpired, logout } = useAuth();
+
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login');
+  const [pendingTab, setPendingTab] = useState<string | null>(null);
+  const [authPromptMessage, setAuthPromptMessage] = useState<string | null>(null);
+
+  // If user becomes authenticated, automatically transition to the pending protected tab
+  useEffect(() => {
+    if (isAuthenticated) {
+      if (pendingTab) {
+        setActiveTab(pendingTab);
+        setPendingTab(null);
+      }
+      setShowAuthModal(false);
+      setAuthPromptMessage(null);
+      clearSessionExpired();
+    }
+  }, [isAuthenticated, pendingTab, clearSessionExpired]);
+
   const handleTabChange = (tab: string) => {
+    // Overview (dashboard) is always accessible
+    if (tab === 'dashboard') {
+      setActiveTab('dashboard');
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', 'dashboard');
+        window.history.replaceState({}, '', url.toString());
+      }
+      return;
+    }
+
+    // All other tabs require authentication
+    if (!isAuthenticated) {
+      const current = navItems.find(i => i.id === tab);
+      const tabLabel = current?.label || current?.shortLabel || 'this section';
+      setPendingTab(tab);
+      setAuthPromptMessage(`Please sign in or create an account to access ${tabLabel}.`);
+      setShowAuthModal(true);
+      return;
+    }
+
     setActiveTab(tab);
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
@@ -32,42 +74,57 @@ function AppContent() {
       window.history.replaceState({}, '', url.toString());
     }
   };
-// ── Auth gate — shows Login/Register when user is not authenticated ───────────
 
-function AuthGate() {
-  const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login');
-
-  if (authScreen === 'login') {
-    return <LoginPage onSwitchToRegister={() => setAuthScreen('register')} />;
-  }
-  return <RegisterPage onSwitchToLogin={() => setAuthScreen('login')} />;
-}
-
-// ── Main app shell — only rendered when authenticated ─────────────────────────
-
-function AppShell() {
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
-  const { user, logout } = useAuth();
+  const handleOpenAuth = (intendedTab?: string) => {
+    if (intendedTab) setPendingTab(intendedTab);
+    setAuthPromptMessage(intendedTab ? `Sign in to access ${intendedTab}` : null);
+    setShowAuthModal(true);
+  };
 
   const currentItem = navItems.find(i => i.id === activeTab);
   const activeTitle = currentItem?.shortLabel || currentItem?.label || 'Overview';
-  const displayName = user?.full_name || user?.username || 'Student';
+  const displayName = user?.full_name || user?.username || 'Guest Learner';
 
   return (
     <div className="min-h-screen flex bg-[#f8f9fa] dark:bg-[#0b0f17] text-slate-800 dark:text-slate-100 font-sans selection:bg-indigo-500/20 antialiased transition-colors duration-200">
       <Sidebar
         activeTab={activeTab}
         setActiveTab={handleTabChange}
-        userName="Student"
-        userRole="Pro plan"
-        setActiveTab={setActiveTab}
         userName={displayName}
-        userRole="SkillBridge AI"
+        userRole={isAuthenticated ? 'Verified Learner' : 'Guest'}
+        isAuthenticated={isAuthenticated}
+        onOpenAuth={() => handleOpenAuth()}
         onLogout={logout}
       />
 
       <div className="flex-1 flex flex-col min-w-0 min-h-screen overflow-x-hidden">
-        <Header title={activeTitle} userName={displayName} />
+        {/* Session expired floating notification */}
+        {sessionExpired && !isAuthenticated && (
+          <div className="bg-amber-500/10 border-b border-amber-500/20 px-8 py-2.5 text-xs text-amber-700 dark:text-amber-300 flex items-center justify-between z-50">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-500" />
+              <span>Your session has expired. Please sign in to resume your work and save progress.</span>
+            </div>
+            <button
+              onClick={() => {
+                setPendingTab(activeTab);
+                setAuthPromptMessage('Your session expired. Please sign in to resume.');
+                setShowAuthModal(true);
+                clearSessionExpired();
+              }}
+              className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-semibold rounded-lg text-xs transition-colors shadow-2xs cursor-pointer"
+            >
+              Sign In
+            </button>
+          </div>
+        )}
+
+        <Header
+          title={activeTitle}
+          userName={displayName}
+          setActiveTab={handleTabChange}
+          onOpenAuth={handleOpenAuth}
+        />
 
         <main className="flex-1 p-6 sm:p-8 max-w-7xl w-full mx-auto">
           {activeTab === 'dashboard' && <DashboardPage setActiveTab={handleTabChange} />}
@@ -76,12 +133,6 @@ function AppShell() {
           {activeTab === 'gaps' && <SkillGapPage setActiveTab={handleTabChange} />}
           {activeTab === 'assessment' && <AssessmentPage setActiveTab={handleTabChange} />}
           {activeTab === 'roadmap' && <RoadmapPage setActiveTab={handleTabChange} />}
-          {activeTab === 'dashboard'  && <DashboardPage setActiveTab={setActiveTab} />}
-          {activeTab === 'profile'    && <ProfilePage setActiveTab={setActiveTab} />}
-          {activeTab === 'analysis'   && <JobAnalysisPage setActiveTab={setActiveTab} />}
-          {activeTab === 'gaps'       && <SkillGapPage setActiveTab={setActiveTab} />}
-          {activeTab === 'assessment' && <AssessmentPage setActiveTab={setActiveTab} />}
-          {activeTab === 'roadmap'    && <RoadmapPage setActiveTab={setActiveTab} />}
         </main>
 
         <footer className="border-t border-slate-200/80 dark:border-slate-800/80 bg-white/50 dark:bg-[#0e131f]/50 px-8 py-3 text-xs text-slate-400 dark:text-slate-500 flex items-center justify-between">
@@ -89,14 +140,41 @@ function AppShell() {
           <span>Evidence-based & deadline-aware planning</span>
         </footer>
       </div>
+
+      {/* Auth Modal Overlay */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto animate-in fade-in duration-150">
+          <div className="w-full max-w-sm">
+            {authScreen === 'login' ? (
+              <LoginPage
+                onSwitchToRegister={() => setAuthScreen('register')}
+                onClose={() => {
+                  setShowAuthModal(false);
+                  setPendingTab(null);
+                  setAuthPromptMessage(null);
+                }}
+                promptMessage={authPromptMessage}
+              />
+            ) : (
+              <RegisterPage
+                onSwitchToLogin={() => setAuthScreen('login')}
+                onClose={() => {
+                  setShowAuthModal(false);
+                  setPendingTab(null);
+                  setAuthPromptMessage(null);
+                }}
+                promptMessage={authPromptMessage}
+              />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Root — decides which shell to show ────────────────────────────────────────
-
 function AppContent() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isLoading } = useAuth();
 
   // Brief loading state while checking stored token on startup
   if (isLoading) {
@@ -110,7 +188,7 @@ function AppContent() {
     );
   }
 
-  return isAuthenticated ? <AppShell /> : <AuthGate />;
+  return <AppShell />;
 }
 
 export default function App() {

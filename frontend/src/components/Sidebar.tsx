@@ -1,12 +1,13 @@
 import {
   LayoutGrid,
-  FileText,
+  User,
   Search,
   TrendingUp,
   CheckSquare,
   Layers,
   Sparkles,
   LogOut,
+  LogIn,
   type LucideIcon
 } from 'lucide-react';
 
@@ -23,11 +24,13 @@ interface SidebarProps {
   userName?: string;
   userRole?: string;
   onLogout?: () => void;
+  onOpenAuth?: () => void;
+  isAuthenticated?: boolean;
 }
 
 export const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Overview', shortLabel: 'Overview', icon: LayoutGrid },
-  { id: 'profile', label: 'Profile & Evidence', shortLabel: 'Resume', icon: FileText },
+  { id: 'profile', label: 'Profile', shortLabel: 'Profile', icon: User },
   { id: 'analysis', label: 'Job & Goal Analysis', shortLabel: 'JD Matcher', icon: Search },
   { id: 'roadmap', label: 'Roadmap', shortLabel: 'Roadmap', icon: TrendingUp },
   { id: 'assessment', label: 'Practical Tasks', shortLabel: 'Practical Tasks', icon: CheckSquare },
@@ -40,6 +43,8 @@ export default function Sidebar({
   userName = 'Student',
   userRole = 'Pro plan',
   onLogout,
+  onOpenAuth,
+  isAuthenticated = false,
 }: SidebarProps) {
   return (
     <aside className="w-60 min-h-screen bg-white dark:bg-[#0e131f] border-r border-slate-200/80 dark:border-slate-800/80 flex flex-col justify-between p-4 select-none shrink-0 transition-colors duration-200">
@@ -98,13 +103,23 @@ export default function Sidebar({
             </div>
           </div>
         </div>
-        {onLogout && (
+        {isAuthenticated ? (
+          onLogout && (
+            <button
+              onClick={onLogout}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Sign Out
+            </button>
+          )
+        ) : (
           <button
-            onClick={onLogout}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all"
+            onClick={onOpenAuth}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition-all shadow-xs"
           >
-            <LogOut className="w-3.5 h-3.5" />
-            Sign Out
+            <LogIn className="w-3.5 h-3.5" />
+            Sign In / Register
           </button>
         )}
       </div>

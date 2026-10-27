@@ -65,23 +65,8 @@ else
     echo "SQS -> Lambda trigger mapping already active."
 fi
 
-# 5. DynamoDB UserProfile Table
-echo "Ensuring DynamoDB table 'skillbridge-user-profiles' exists..."
-TABLE_STATUS=$(awslocal dynamodb describe-table --table-name skillbridge-user-profiles --query 'Table.TableStatus' --output text 2>/dev/null || true)
-if [ -z "$TABLE_STATUS" ] || [ "$TABLE_STATUS" = "None" ]; then
-    awslocal dynamodb create-table \
-        --table-name skillbridge-user-profiles \
-        --attribute-definitions \
-            AttributeName=user_id,AttributeType=S \
-            AttributeName=record_type,AttributeType=S \
-        --key-schema \
-            AttributeName=user_id,KeyType=HASH \
-            AttributeName=record_type,KeyType=RANGE \
-        --billing-mode PAY_PER_REQUEST
-    echo "DynamoDB table 'skillbridge-user-profiles' created."
-else
-    echo "DynamoDB table 'skillbridge-user-profiles' already exists (status: $TABLE_STATUS)."
-fi
+# 5. Database (Neon PostgreSQL is the primary store; DynamoDB removed)
+echo "Neon PostgreSQL is the primary database (ep-wispy-lab-bact4jha-pooler.c-8.eu-central-1.aws.neon.tech). Skipping DynamoDB."
 
 # 7. CloudWatch Metric Alarm
 echo "Configuring CloudWatch error alarm..."

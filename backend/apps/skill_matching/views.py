@@ -1,6 +1,7 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
 from apps.job_analysis.models import JobAnalysis
 from apps.profiles.models import UserProfile
 from services.matching_engine import SkillMatchingEngine
@@ -13,6 +14,7 @@ class JobAnalysisMatchView(APIView):
     Executes deterministic and vector similarity skill matching comparing requirements with learner profile evidence,
     and calculates deadline feasibility according to Blueprint 2.0 (Sections 7 & 8).
     """
+    permission_classes = [AllowAny]
     def post(self, request, analysis_id):
         # 1. Resolve analysis by exact ID or role title in Neon database
         analysis = JobAnalysis.objects.filter(analysis_id=analysis_id).first()
@@ -64,6 +66,28 @@ class JobAnalysisMatchView(APIView):
                 for e in profile.evidence_records.all()
             ]
         }
+
+        # Include skills demonstrated in Member 1's project descriptions as verified/unverified evidence
+        existing_evidence_skills = {e["skill_name"].lower().strip() for e in profile_data["evidence"]}
+        for idx, p in enumerate(profile.project_descriptions or []):
+            if isinstance(p, dict):
+                p_title = p.get("title") or f"Project {idx + 1}"
+                p_link = p.get("link") or ""
+                p_desc = p.get("description") or ""
+                for s in p.get("skills_demonstrated", []):
+                    if s and s.lower().strip() not in existing_evidence_skills:
+                        profile_data["evidence"].append({
+                            "evidence_id": f"proj_evi_{p.get('project_id', idx)}_{s.lower().replace(' ', '_')[:20]}",
+                            "skill_name": s,
+                            "review_status": "verified" if p_link else "unverified",
+                            "status": "verified" if p_link else "unverified",
+                            "title": p_title,
+                            "reference": p_link,
+                            "evidence_type": "project",
+                            "description": p_desc or f"Demonstrated in {p_title}",
+                            "embedding": None
+                        })
+                        existing_evidence_skills.add(s.lower().strip())
 
         # Query completed assessments from Member 4's app (if available)
         completed_assessments = []
@@ -196,6 +220,7 @@ class JobAnalysisGapsView(APIView):
     GET /api/job-analyses/{id}/gaps/
     Retrieves prioritized skill gap breakdown, summary, and feasibility.
     """
+    permission_classes = [AllowAny]
     def get(self, request, analysis_id):
         analysis = JobAnalysis.objects.filter(analysis_id=analysis_id).first()
         if not analysis:
@@ -271,6 +296,7 @@ class EvidenceInspectView(APIView):
     Inspects GitHub repository with GITHUB_TOKEN and passes structure
     to OpenRouter AI for verification scoring, test detection, and audit findings.
     """
+    permission_classes = [AllowAny]
     def post(self, request):
         data = request.data or {}
         repo_url = data.get("repository_url") or data.get("reference") or ""
@@ -302,6 +328,7 @@ class RemediationAdviceView(APIView):
     Generates level-calibrated technical interview questions and 3 progressive project tracks
     tailored to the learner's experience level, target role, and time budget.
     """
+    permission_classes = [AllowAny]
     def post(self, request):
         data = request.data or {}
         skill_name = data.get("skill_name") or ""

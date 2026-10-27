@@ -35,7 +35,7 @@ export default function Navbar({ activeTab, setActiveTab }: NavbarProps) {
             <div className="font-bold text-base tracking-tight text-white flex items-center gap-2">
               SkillBridge AI
               <span className="text-[10px] font-semibold uppercase px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                Blueprint 2.0
+                Career Copilot
               </span>
             </div>
             <div className="text-xs text-slate-400">
@@ -66,10 +66,10 @@ export default function Navbar({ activeTab, setActiveTab }: NavbarProps) {
           })}
         </nav>
 
-        {/* Cloud Badge */}
+        {/* AI Engine Badge */}
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium px-2.5 py-1 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
-            AWS Bedrock • Ready
+            Gemini & OpenRouter • Active
           </span>
         </div>
       </div>

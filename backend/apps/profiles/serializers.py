@@ -33,7 +33,13 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'target_date', 'study_capacity_hours_per_week',
             'resume_file', 'resume_parsed_text', 'evidence', 'updated_at',
         ]
-        read_only_fields = ['updated_at']
+        read_only_fields = ['updated_at', 'resume_file', 'resume_parsed_text']
+
+    def to_internal_value(self, data):
+        if isinstance(data, dict) and "resume_file" in data and (isinstance(data["resume_file"], str) or data["resume_file"] is None):
+            data = dict(data)
+            data.pop("resume_file", None)
+        return super().to_internal_value(data)
 
     def validate_skills(self, value):
         """Accept either a comma-separated string or a list."""

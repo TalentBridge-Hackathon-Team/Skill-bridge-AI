@@ -2,20 +2,21 @@ import uuid
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
 from .models import UserProfile, SkillEvidence
 from .serializers import UserProfileSerializer, SkillEvidenceSerializer
-from services import dynamodb_service
 from services.aws_service import resume_pipeline
 
 
 def _resolve_user_id(request) -> str:
     """
     Resolves the caller's identity.
-    Query param takes priority over body — query param is set by the caller's
-    own session/token and cannot be spoofed via the request body.
-    In production, replace with request.user.id from JWT middleware.
+    If authenticated via JWT token, uses request.user.id.
+    Query param or request body can override for testing/demo access.
     """
+    if getattr(request, "user", None) and request.user.is_authenticated:
+        return str(request.user.id)
     return (
         request.query_params.get("user_id")
         or request.data.get("user_id")
@@ -32,8 +33,9 @@ class ProfileCreateView(APIView):
     """
     POST /api/profiles/ — Initialize a new user profile.
     Returns 409 if a profile for that user_id already exists.
-    Syncs the record to DynamoDB after PostgreSQL creation.
+    Saves the record to Neon PostgreSQL.
     """
+    permission_classes = [AllowAny]
 
     def post(self, request):
         user_id = _resolve_user_id(request)
@@ -51,21 +53,6 @@ class ProfileCreateView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         profile = serializer.save()
-
-        # Mirror to DynamoDB (best-effort, non-blocking)
-        dynamodb_service.put_profile({
-            "user_id": profile.user_id,
-            "name": profile.name,
-            "target_role": profile.target_role,
-            "education": profile.education,
-            "experience_level": profile.experience_level,
-            "skills": profile.skills,
-            "professional_background": profile.professional_background,
-            "project_descriptions": profile.project_descriptions,
-            "target_date": str(profile.target_date) if profile.target_date else None,
-            "study_capacity_hours_per_week": profile.study_capacity_hours_per_week,
-        })
-
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
@@ -76,40 +63,77 @@ class ProfileMeView(APIView):
 
     Ownership is enforced: the user_id in the request must match the resource.
     """
+    permission_classes = [AllowAny]
 
     def get(self, request):
         user_id = _resolve_user_id(request)
+        user_candidates = [user_id]
+        if getattr(request, "user", None) and request.user.is_authenticated:
+            user_candidates.extend([request.user.username, str(request.user.id)])
+        if user_id in ("demo_user", "usr_demo_001"):
+            user_candidates.extend(["demo_user", "usr_demo_001"])
 
-        profile = UserProfile.objects.filter(user_id=user_id).first()
+        profile = UserProfile.objects.filter(user_id__in=user_candidates).first()
         if not profile:
-            # Auto-create on first access (convenience for dev/demo)
+            # Auto-create on first access with registered details if available
+            reg_name = "Demo User"
+            if getattr(request, "user", None) and request.user.is_authenticated:
+                reg_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
             profile = UserProfile.objects.create(
                 user_id=user_id,
-                name="Demo User",
+                name=reg_name,
                 target_role="Junior Backend Developer",
                 education="",
                 skills=[]
             )
+        elif getattr(request, "user", None) and request.user.is_authenticated:
+            full_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
+            if full_name and profile.name in ("Demo User", "Demo Learner", ""):
+                profile.name = full_name
+                profile.save(update_fields=["name"])
+
         serializer = UserProfileSerializer(profile)
         return Response(serializer.data)
 
     def put(self, request):
         user_id = _resolve_user_id(request)
 
-        profile = UserProfile.objects.filter(user_id=user_id).first()
-        if not profile:
-            return Response(
-                {"error": "Profile not found. Use POST /api/profiles/ to create one first."},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        # Ownership check
+        # Ownership check: verify caller is modifying their own profile
         target_user_id = request.data.get("user_id", user_id)
-        if not _ownership_check(user_id, target_user_id):
+        is_authenticated_caller = (
+            getattr(request, "user", None)
+            and request.user.is_authenticated
+            and (target_user_id in (str(request.user.id), request.user.username, user_id))
+        )
+        is_demo_alias = user_id in ("demo_user", "usr_demo_001") and target_user_id in ("demo_user", "usr_demo_001")
+        if not _ownership_check(user_id, target_user_id) and not is_demo_alias and not is_authenticated_caller:
             return Response(
                 {"error": "Forbidden: you can only modify your own profile."},
                 status=status.HTTP_403_FORBIDDEN
             )
+
+        user_candidates = [user_id, target_user_id]
+        if getattr(request, "user", None) and request.user.is_authenticated:
+            user_candidates.extend([request.user.username, str(request.user.id)])
+        if user_id in ("demo_user", "usr_demo_001") or target_user_id in ("demo_user", "usr_demo_001"):
+            user_candidates.extend(["demo_user", "usr_demo_001"])
+
+        profile = UserProfile.objects.filter(user_id__in=user_candidates).first()
+        if not profile:
+            if getattr(request, "user", None) and request.user.is_authenticated:
+                profile = UserProfile.objects.create(
+                    user_id=str(request.user.id),
+                    name=request.data.get("name") or (
+                        f"{request.user.first_name} {request.user.last_name}".strip()
+                        or request.user.username
+                    ),
+                    target_role=request.data.get("target_role", "Junior Backend Developer")
+                )
+            else:
+                return Response(
+                    {"error": f"Profile for user '{user_id}' not found."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
 
         serializer = UserProfileSerializer(profile, data=request.data, partial=True)
         if not serializer.is_valid():
@@ -117,48 +141,53 @@ class ProfileMeView(APIView):
 
         profile = serializer.save()
 
-        # Mirror updated fields to DynamoDB
-        dynamodb_service.put_profile({
-            "user_id": profile.user_id,
-            "name": profile.name,
-            "target_role": profile.target_role,
-            "education": profile.education,
-            "experience_level": profile.experience_level,
-            "skills": profile.skills,
-            "professional_background": profile.professional_background,
-            "project_descriptions": profile.project_descriptions,
-            "target_date": str(profile.target_date) if profile.target_date else None,
-            "study_capacity_hours_per_week": profile.study_capacity_hours_per_week,
-        })
+        # Auto-sync project descriptions into verified/unverified SkillEvidence records
+        if profile.project_descriptions:
+            for proj in profile.project_descriptions:
+                if isinstance(proj, dict):
+                    p_title = proj.get("title") or "Project Deliverable"
+                    p_link = proj.get("link") or ""
+                    p_desc = proj.get("description") or ""
+                    for s in proj.get("skills_demonstrated", []):
+                        if s:
+                            SkillEvidence.objects.update_or_create(
+                                profile=profile,
+                                skill_name=s,
+                                defaults={
+                                    "evidence_id": f"evi_{profile.user_id}_{s.lower().replace(' ', '_')[:20]}",
+                                    "evidence_type": "project",
+                                    "title": p_title,
+                                    "reference": p_link,
+                                    "description": p_desc or f"Demonstrated in {p_title}",
+                                    "review_status": "verified" if p_link else "unverified"
+                                }
+                            )
 
-        return Response(serializer.data)
+        return Response(UserProfileSerializer(profile).data)
 
-
-import uuid
 
 class ProfileEvidenceView(APIView):
     """
     POST /api/profiles/me/evidence/ — Add a new skill evidence record.
     Ownership is enforced via user_id on the parent profile.
     """
+    permission_classes = [AllowAny]
 
     def post(self, request):
-        user_id = request.query_params.get("user_id") or request.data.get("user_id") or "usr_demo_001"
-        profile, _ = UserProfile.objects.get_or_create(
-            user_id=user_id,
-            defaults={"name": "Demo User", "target_role": "Junior Backend Developer"}
-        )
+        caller_user_id = _resolve_user_id(request)
+        user_candidates = [caller_user_id]
+        if caller_user_id in ("demo_user", "usr_demo_001"):
+            user_candidates = ["demo_user", "usr_demo_001"]
+
+        profile = UserProfile.objects.filter(user_id__in=user_candidates).first()
+        if not profile:
+            profile = UserProfile.objects.create(
+                user_id=caller_user_id,
+                name="Demo User",
+                target_role="Junior Backend Developer"
+            )
 
         data = request.data.copy() if hasattr(request.data, "copy") else dict(request.data)
-        if not data.get("evidence_id"):
-            data["evidence_id"] = f"evi_{uuid.uuid4().hex[:10]}"
-        caller_user_id = _resolve_user_id(request)
-        profile = UserProfile.objects.filter(user_id=caller_user_id).first()
-        if not profile:
-            return Response({"error": "Profile not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        # Generate evidence_id if not supplied
-        data = dict(request.data)
         if not data.get("evidence_id"):
             data["evidence_id"] = f"evi_{uuid.uuid4().hex[:12]}"
 
@@ -175,6 +204,7 @@ class ResumeUploadView(APIView):
     Ownership enforced: user_id in form data must match the caller's identity.
     Uploads to S3, dispatches to SQS, and creates a SkillEvidence record.
     """
+    permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):

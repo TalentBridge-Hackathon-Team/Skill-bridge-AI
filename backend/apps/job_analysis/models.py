@@ -36,7 +36,7 @@ class Goal(models.Model):
     goal_id = models.CharField(max_length=100, primary_key=True)
     user_id = models.CharField(max_length=100, default="usr_demo_001")
     goal_type = models.CharField(max_length=50, choices=GOAL_TYPES, default='career_role')
-    goal_text = models.CharField(max_length=255)
+    goal_text = models.TextField(blank=True)
     target_profile_id = models.CharField(max_length=100, default="prof_junior_backend")
     days_remaining = models.IntegerField(default=30, blank=True, null=True)
     study_hours_per_week = models.FloatField(default=10.0)

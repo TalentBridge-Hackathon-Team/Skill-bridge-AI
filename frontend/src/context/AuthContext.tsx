@@ -27,6 +27,8 @@ interface AuthContextType {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;          // true while checking stored token on startup
+  sessionExpired: boolean;     // true when JWT expired or 401 received
+  clearSessionExpired: () => void;
   login: (payload: LoginPayload) => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
   logout: () => Promise<void>;
@@ -70,6 +72,25 @@ async function authGet<T>(endpoint: string, accessToken: string): Promise<T> {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  const clearSessionExpired = useCallback(() => {
+    setSessionExpired(false);
+  }, []);
+
+  // Listen for 401 session expiration events
+  useEffect(() => {
+    const handleExpired = () => {
+      setSessionExpired(true);
+      setUser(null);
+      localStorage.removeItem(ACCESS_KEY);
+      localStorage.removeItem(REFRESH_KEY);
+      localStorage.removeItem('skillbridge_auth_user_id');
+      localStorage.removeItem('skillbridge_auth_user');
+    };
+    window.addEventListener('skillbridge_session_expired', handleExpired);
+    return () => window.removeEventListener('skillbridge_session_expired', handleExpired);
+  }, []);
 
   // On mount: if we have a stored access token, verify it by calling /me/
   useEffect(() => {
@@ -79,11 +100,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     authGet<AuthUser>('/auth/me/', token)
-      .then((u) => setUser(u))
+      .then((u) => {
+        setUser(u);
+        setSessionExpired(false);
+        localStorage.setItem('skillbridge_auth_user_id', String(u.id));
+        localStorage.setItem('skillbridge_auth_user', JSON.stringify(u));
+      })
       .catch(() => {
-        // Token expired or invalid — clear storage silently
+        // Token expired or invalid — clear storage silently and flag expired
         localStorage.removeItem(ACCESS_KEY);
         localStorage.removeItem(REFRESH_KEY);
+        localStorage.removeItem('skillbridge_auth_user_id');
+        localStorage.removeItem('skillbridge_auth_user');
+        setSessionExpired(true);
       })
       .finally(() => setIsLoading(false));
   }, []);
@@ -91,7 +120,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const storeTokens = (resp: AuthResponse) => {
     localStorage.setItem(ACCESS_KEY, resp.access);
     localStorage.setItem(REFRESH_KEY, resp.refresh);
+    localStorage.setItem('skillbridge_auth_user_id', String(resp.user.id));
+    localStorage.setItem('skillbridge_auth_user', JSON.stringify(resp.user));
     setUser(resp.user);
+    setSessionExpired(false);
   };
 
   const login = useCallback(async (payload: LoginPayload) => {
@@ -120,6 +152,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     localStorage.removeItem(ACCESS_KEY);
     localStorage.removeItem(REFRESH_KEY);
+    localStorage.removeItem('skillbridge_auth_user_id');
+    localStorage.removeItem('skillbridge_auth_user');
     setUser(null);
   }, []);
 
@@ -133,6 +167,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isAuthenticated: user !== null,
         isLoading,
+        sessionExpired,
+        clearSessionExpired,
         login,
         register,
         logout,
@@ -148,6 +184,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth(): AuthContextType {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>');
+  if (!ctx) {
+    return {
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
+      sessionExpired: false,
+      clearSessionExpired: () => {},
+      login: async () => {},
+      register: async () => {},
+      logout: async () => {},
+      getAccessToken: () => null,
+    };
+  }
   return ctx;
 }
