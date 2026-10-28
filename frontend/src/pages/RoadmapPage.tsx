@@ -468,6 +468,14 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
     feasibilityGuidance = 'Solid pacing aligned with your target deadline. Maintain your scheduled daily commitment.';
   }
 
+  // Adapt daily study capacity to the recommended value
+  const handleUpdateDailyHours = async (newDailyHours: number) => {
+    setDailyAvailableHours(newDailyHours);
+    await loadRoadmapData(selectedRoleId, deadlineDays, newDailyHours);
+    setRecalculatedNotice(`Capacity updated: ${newDailyHours}h/day (${Math.round(newDailyHours * 7)}h/week).`);
+    setTimeout(() => setRecalculatedNotice(null), 4000);
+  };
+
   // Recalculate Roadmap Plan Action
   const handleRecalculatePlan = async () => {
     setIsRecalculating(true);
