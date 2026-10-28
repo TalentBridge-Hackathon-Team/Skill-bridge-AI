@@ -27,6 +27,4 @@ RUN python manage.py collectstatic --noinput
 
 EXPOSE 8000
 
-# Run migrations then start gunicorn with 4 sync workers.
-# Increase --workers for more CPU cores: recommended formula = (2 * CPUs) + 1
-CMD ["sh", "-c", "python manage.py migrate --noinput && gunicorn skillbridge_backend.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120 --access-logfile - --error-logfile -"]
+CMD ["sh", "-c", "python manage.py migrate --noinput && gunicorn skillbridge_backend.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 4 --timeout 120 --access-logfile - --error-logfile -"]

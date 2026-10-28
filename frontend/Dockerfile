@@ -20,10 +20,13 @@ RUN npm run build
 # ── Stage 2: serve via nginx ──────────────────────────────────────────────────
 FROM nginx:1.27-alpine
 
+ENV PORT=80
+ENV BACKEND_URL=http://backend:8000
+
 # Copy the built bundle
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy nginx config template (uses $BACKEND_HOST env var for API proxy)
+# Copy nginx config template (uses $PORT and $BACKEND_URL via envsubst)
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 EXPOSE 80
