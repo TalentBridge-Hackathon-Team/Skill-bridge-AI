@@ -313,7 +313,14 @@ export function detectSkillDomain(skillName: string, message: string = ''): 'ml_
   if (combined.includes('docker') || combined.includes('container') || combined.includes('kubernetes') || combined.includes('k8s') || combined.includes('aws') || combined.includes('s3') || combined.includes('sqs') || combined.includes('lambda') || combined.includes('ci/cd') || combined.includes('terraform') || combined.includes('devops')) {
     return 'devops_cloud';
   }
-  if (combined.includes('jwt') || combined.includes('oauth') || combined.includes('token') || combined.includes('auth') || combined.includes('rbac') || combined.includes('secret key') || combined.includes('csrf') || combined.includes('xss') || combined.includes('cors')) {
+  if (
+    combined.includes('security') || combined.includes('audit') || combined.includes('pentest') ||
+    combined.includes('penetration') || combined.includes('vulnerability') || combined.includes('siem') ||
+    combined.includes('firewall') || combined.includes('cryptography') || combined.includes('cipher') ||
+    combined.includes('jwt') || combined.includes('oauth') || combined.includes('token') ||
+    combined.includes('auth') || combined.includes('rbac') || combined.includes('secret key') ||
+    combined.includes('csrf') || combined.includes('xss') || combined.includes('cors') || combined.includes('owasp')
+  ) {
     return 'security';
   }
   if (combined.includes('react') || combined.includes('vue') || combined.includes('angular') || combined.includes('typescript') || combined.includes('javascript') || combined.includes('css') || combined.includes('tailwind') || combined.includes('next.js') || combined.includes('virtual dom') || combined.includes('frontend')) {
@@ -1041,70 +1048,17 @@ function FormattedMentorMessage({ text }: { text: string }) {
 }
 
 export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
-  const { user } = useAuth();
-  const currentUserId = user?.id
-    ? String(user.id)
-    : (typeof window !== 'undefined'
-        ? window.localStorage.getItem('skillbridge_user_id') || 'usr_demo_001'
-        : 'usr_demo_001');
+  const { user, isLoading: authLoading } = useAuth();
+  // Never fall back to a shared demo ID — wait for auth to resolve first
+  const currentUserId = !authLoading && user?.id ? String(user.id) : null;
 
   // Target Role & Skill Gap State
   const [roles, setRoles] = useState<TargetRoleOption[]>([]);
-  const [selectedRoleId, setSelectedRoleId] = useState<string>(() => {
-    try {
-      if (typeof window !== 'undefined' && window.location) {
-        const url = new URL(window.location.href);
-        const r = url.searchParams.get('role');
-        if (r) return r;
-      }
-      const svcRole = skillGapService.getSelectedRoleId();
-      if (svcRole) return svcRole;
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const stored = window.localStorage.getItem('skillbridge_selected_role');
-        if (stored) return stored;
-      }
-    } catch {}
-    return 'role_junior_backend';
-  });
+  const [selectedRoleId, setSelectedRoleId] = useState<string>('');
   const [skillGaps, setSkillGaps] = useState<TraceableMatchResult[]>([]);
-  const [activeSkillGap, setActiveSkillGap] = useState<string>(() => {
-    try {
-      if (typeof window !== 'undefined' && window.location) {
-        const url = new URL(window.location.href);
-        const s = url.searchParams.get('skill');
-        if (s) return s;
-      }
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const raw = window.localStorage.getItem('skillbridge_selected_practice_project');
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed.skill_name) return parsed.skill_name;
-        }
-      }
-    } catch {}
-    return 'PostgreSQL';
-  });
+  const [activeSkillGap, setActiveSkillGap] = useState<string>('');
   // Practice Project State (supports switching back and forth)
-  const [cachedPracticeProject, setCachedPracticeProject] = useState<any>(() => {
-    try {
-      let initialSkill: string | null = null;
-      if (typeof window !== 'undefined' && window.location) {
-        const url = new URL(window.location.href);
-        initialSkill = url.searchParams.get('skill');
-      }
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const raw = window.localStorage.getItem('skillbridge_selected_practice_project');
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (initialSkill && parsed.skill_name && parsed.skill_name.toLowerCase().trim() !== initialSkill.toLowerCase().trim()) {
-            return null;
-          }
-          return parsed;
-        }
-      }
-    } catch {}
-    return null;
-  });
+  const [cachedPracticeProject, setCachedPracticeProject] = useState<any>(null);
   const [isProjectTrackActive, setIsProjectTrackActive] = useState<boolean>(true);
   const [isLoadingGaps, setIsLoadingGaps] = useState<boolean>(true);
 
@@ -1629,6 +1583,8 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
       const entityBase = d1.split('/').pop()?.replace(/\.(ts|js|py|sql)$/, '') || 'task';
       const entityName = entityBase.charAt(0).toUpperCase() + entityBase.slice(1);
 
+      const isTypeScript = (s.includes('typescript') || s.includes('javascript') || s.includes('react') || s.includes('node') || s.includes('frontend')) || (deliverables.length > 0 && (d1.endsWith('.ts') || d1.endsWith('.tsx')));
+
       if (pref === 'visual') {
         conceptAnim = resolveDynamicConceptAnimation(
           activeSkillGap,
@@ -1638,7 +1594,11 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
         );
         adaptationText = `🎨 Style updated to Visual Mode for ${activeSkillGap}!\n\n` +
           `Here is the architectural execution flow diagram:\n\n` +
-          (s.includes('typescript') || s.includes('javascript') || d1.endsWith('.ts')
+          (domain === 'security' || s.includes('security') || s.includes('audit')
+            ? `[Inbound Traffic] ──► [Perimeter Firewall / WAF] ──► [Auth & RBAC Gate] ──► [Audit Logger (SIEM)] ──► [Protected Resource]\n` +
+              `                               │                            │\n` +
+              `                               └── Unauthorized (Block/Alert)─┘\n\n`
+            : isTypeScript
             ? `[Raw Client JSON] ──► [Zod Schema (z.infer)] ──► [Perimeter safeParse()] ──► [Type-Safe Controller] ──► [HTTP 201/200 OK]\n` +
               `                             │                                    ▲\n` +
               `                             └── Invalid Payload (HTTP 400) ───────┘\n\n`
@@ -1646,7 +1606,22 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
           `I have also activated the interactive concept animation below so you can step through the execution path visually!`;
         followUp = `At which stage in this visual pipeline should boundary constraints be enforced to protect system storage?`;
       } else if (pref === 'hands_on') {
-        if (s.includes('typescript') || s.includes('javascript') || s.includes('react') || s.includes('node') || d1.endsWith('.ts') || d1.endsWith('.tsx')) {
+        if (domain === 'security' || s.includes('security') || s.includes('audit') || s.includes('pentest') || s.includes('penetration') || s.includes('siem') || s.includes('firewall') || s.includes('cryptography')) {
+          adaptationText = `🛠️ Style updated to Hands-on Mode for ${activeSkillGap}!\n\n` +
+            `Here is your practical audit & security assertion blueprint for ${activeSkillGap}:\n\n` +
+            `### Practical Security & Access Boundary Assertions\n` +
+            `\`\`\`python\n` +
+            `# 1. Enforce Least-Privilege & RBAC Invariant\n` +
+            `assert user_session.has_permission("audit:read") is True\n` +
+            `assert user_session.has_permission("audit:admin") is False\n\n` +
+            `# 2. Tamper-Evident Audit Logging Invariant\n` +
+            `audit_entry = security_logger.log_event("access_attempt", user_id=user.id)\n` +
+            `assert audit_entry.is_immutable is True\n` +
+            `assert audit_entry.tamper_detected is False\n` +
+            `\`\`\`\n\n` +
+            `Focus on verifying authorization boundaries, least-privilege constraints, and immutable audit trails for ${activeSkillGap}.`;
+          followUp = `What specific unauthorized or boundary tampering attempt does your test harness assert against in ${activeSkillGap}?`;
+        } else if (isTypeScript) {
           adaptationText = `🛠️ Style updated to Hands-on Mode for ${activeSkillGap}!\n\n` +
             `Here is your concrete test-runner contract harness blueprint for ${activeSkillGap}:\n\n` +
             `In TypeScript architectures, static types (\`interface\` and \`type\`) are completely erased at compile time. At runtime, JavaScript executes without type guarantees unless you enforce boundary validation. A contract harness using Supertest and Zod ensures that incoming and outgoing payloads satisfy strict schema invariants before touching business logic or persistence.\n\n` +
@@ -1717,7 +1692,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
           followUp = `How does running a container as a non-root user protect host system resources in production deployments?`;
         } else {
           adaptationText = `🛠️ Style updated to Hands-on Mode for ${activeSkillGap}!\n\n` +
-            `Here is your concrete test-runner contract harness blueprint for ${activeSkillGap}:\n\n` +
+            `Here is your practical implementation & test assertion blueprint for ${activeSkillGap}:\n\n` +
             `### Practical Contract Test Patterns\n` +
             `\`\`\`python\n` +
             `assert response.status_code in [200, 201]\n` +
@@ -1733,7 +1708,15 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
           followUp = `What specific malformed or boundary input value will your test runner send to confirm the boundary returns HTTP 400 in ${activeSkillGap}?`;
         }
       } else {
-        if (s.includes('docker') || s.includes('devops') || s.includes('container') || s.includes('kubernetes')) {
+        if (domain === 'security' || s.includes('security') || s.includes('audit') || s.includes('pentest') || s.includes('penetration')) {
+          adaptationText = `💡 Style updated to Socratic Mode for ${activeSkillGap}!\n\n` +
+            `I will guide your problem-solving step-by-step with diagnostic questions and trade-off comparisons rather than giving away direct code solutions.\n\n` +
+            `Security Architecture Trade-off Analysis:\n` +
+            `• Choice A: Silent perimeter deflection of unauthorized requests.\n` +
+            `• Choice B: Verbose error feedback with detailed internal rejection reasons.\n` +
+            `• Consequence: Choice B leaks internal system topologies and stack details to external attackers, violating defense-in-depth principles.`;
+          followUp = `Why is standardized, non-revealing error feedback critical when rejecting unauthorized audit requests in ${activeSkillGap}?`;
+        } else if (s.includes('docker') || s.includes('devops') || s.includes('container') || s.includes('kubernetes')) {
           adaptationText = `💡 Style updated to Socratic Mode for ${activeSkillGap}!\n\n` +
             `I will guide your problem-solving step-by-step with diagnostic questions and trade-off comparisons rather than giving away direct code solutions.\n\n` +
             `Container Architecture Trade-off Analysis:\n` +
@@ -1749,7 +1732,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
             `• Choice B: Profile query access patterns with EXPLAIN ANALYZE and build composite indexes for high-cardinality filters.\n` +
             `• Consequence: Choice A drastically degrades write throughput and bloats WAL I/O without resolving query planner bottleneck scans.`;
           followUp = `How does index write amplification impact insert/update throughput during peak transactional workloads in ${activeSkillGap}?`;
-        } else if (s.includes('react') || s.includes('typescript') || s.includes('javascript') || s.includes('frontend') || d1.endsWith('.tsx')) {
+        } else if (isTypeScript) {
           adaptationText = `💡 Style updated to Socratic Mode for ${activeSkillGap}!\n\n` +
             `I will guide your problem-solving step-by-step with diagnostic questions and trade-off comparisons rather than giving away direct code solutions.\n\n` +
             `Client & State Architecture Trade-off Analysis:\n` +
@@ -2349,6 +2332,12 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
 
   // Load Real Target Roles and Skill Gaps from Neon DB
   useEffect(() => {
+    // Wait for auth to finish — firing with a null/demo ID would load another user's data
+    if (authLoading || !currentUserId) {
+      if (!authLoading) setIsLoadingGaps(false); // unauthenticated: stop spinner
+      return;
+    }
+
     let isCancelled = false;
     setIsLoadingGaps(true);
 
@@ -2356,11 +2345,23 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
     const initialSkillParam = params?.get('skill');
     const initialRoleParam = params?.get('role') || skillGapService.getSelectedRoleId() || (typeof window !== 'undefined' ? window.localStorage.getItem('skillbridge_selected_role') : null);
 
-    skillGapService.getTargetRoles(currentUserId).then(async (loadedRoles) => {
+    skillGapService.getTargetRoles(currentUserId ?? undefined).then(async (loadedRoles) => {
       if (isCancelled) return;
       let effectiveRoles = [...loadedRoles];
 
-      let targetRoleId = effectiveRoles[0]?.id || 'role_junior_backend';
+      // If there are no roles for this user, stop here — don't fall back to
+      // a hardcoded role ID that belongs to another user.
+      if (effectiveRoles.length === 0) {
+        if (!isCancelled) {
+          setRoles([]);
+          setSelectedRoleId('');
+          setSkillGaps([]);
+          setIsLoadingGaps(false);
+        }
+        return;
+      }
+
+      let targetRoleId = effectiveRoles[0]?.id;
       if (initialRoleParam) {
         const found = effectiveRoles.find(r => r?.id === initialRoleParam || (r?.id && r.id.toLowerCase() === initialRoleParam.toLowerCase()));
         if (found) {
@@ -2397,21 +2398,22 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
         }
       }
 
-      setRoles(effectiveRoles);
-      setSelectedRoleId(targetRoleId);
-      skillGapService.setSelectedRole(targetRoleId);
+      if (effectiveRoles.length > 0 && targetRoleId) {
+        setRoles(effectiveRoles);
+        setSelectedRoleId(targetRoleId);
+        skillGapService.setSelectedRole(targetRoleId);
 
-      const analysis = await skillGapService.runAnalysis(targetRoleId, undefined, undefined, currentUserId);
-      if (isCancelled) return;
+        const analysis = await skillGapService.runAnalysis(targetRoleId, undefined, undefined, currentUserId ?? undefined);
+        if (isCancelled) return;
 
-      if (analysis && analysis.results) {
-        // Keep all role skills in tabs so Demonstrated skills remain reviewable and accessible
-        setSkillGaps(analysis.results);
+        if (analysis && analysis.results) {
+          // Keep all role skills in tabs so Demonstrated skills remain reviewable and accessible
+          setSkillGaps(analysis.results);
 
         let targetSkill = initialSkillParam;
         if (!targetSkill || !analysis.results.some(g => g.skill_name.toLowerCase().trim() === targetSkill!.toLowerCase().trim())) {
           const firstOpenGap = analysis.results.find(r => r.status !== 'Demonstrated');
-          targetSkill = firstOpenGap?.skill_name || analysis.results[0]?.skill_name || 'TypeScript';
+          targetSkill = firstOpenGap?.skill_name || analysis.results[0]?.skill_name || '';
         }
 
         setActiveSkillGap(targetSkill);
@@ -2428,6 +2430,11 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
           }
         } catch {}
       }
+    } else {
+      setRoles([]);
+      setSelectedRoleId('');
+      setSkillGaps([]);
+    }
     }).catch(err => {
       console.warn('Could not load target roles / skill gaps:', err);
     }).finally(() => {
@@ -2435,7 +2442,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
     });
 
     return () => { isCancelled = true; };
-  }, [currentUserId]);
+  }, [currentUserId, authLoading]);
 
   // Handle switching target role
   const handleRoleChange = async (roleId: string) => {
@@ -2448,7 +2455,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
         window.localStorage.setItem('skillbridge_selected_role', roleId);
         window.localStorage.removeItem('skillbridge_selected_practice_project');
       }
-      const analysis = await skillGapService.runAnalysis(roleId, undefined, undefined, currentUserId);
+      const analysis = await skillGapService.runAnalysis(roleId, undefined, undefined, currentUserId ?? undefined);
       if (analysis && analysis.results) {
         setSkillGaps(analysis.results);
         if (analysis.results.length > 0) {
@@ -2582,12 +2589,15 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
             if (projTitle) {
               window.localStorage.setItem(`skillbridge_verified_project_${activeSkillGap}`, projTitle);
             }
-            const existingAll = JSON.parse(window.localStorage.getItem('skillbridge_all_passed_skills') || '[]');
+            const existingAll = JSON.parse(window.localStorage.getItem(`skillbridge_all_passed_skills_${currentUserId}`) || window.localStorage.getItem('skillbridge_all_passed_skills') || '[]');
             if (!existingAll.some((s: string) => s.toLowerCase() === activeSkillGap.toLowerCase())) {
-              window.localStorage.setItem('skillbridge_all_passed_skills', JSON.stringify([...existingAll, activeSkillGap]));
+              window.localStorage.setItem(`skillbridge_all_passed_skills_${currentUserId}`, JSON.stringify([...existingAll, activeSkillGap]));
             }
           }
         } catch {}
+
+        // Invalidate cached profile & match results so profile immediately reflects newly demonstrated skills
+        api.clearCache();
 
         // Broadcast to RoadmapPage and other active components
         if (typeof window !== 'undefined') {
@@ -2653,9 +2663,9 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
             if (projTitle) {
               window.localStorage.setItem(`skillbridge_verified_project_${activeSkillGap}`, projTitle);
             }
-            const existingAll = JSON.parse(window.localStorage.getItem('skillbridge_all_passed_skills') || '[]');
+            const existingAll = JSON.parse(window.localStorage.getItem(`skillbridge_all_passed_skills_${currentUserId}`) || window.localStorage.getItem('skillbridge_all_passed_skills') || '[]');
             if (!existingAll.some((s: string) => s.toLowerCase() === activeSkillGap.toLowerCase())) {
-              window.localStorage.setItem('skillbridge_all_passed_skills', JSON.stringify([...existingAll, activeSkillGap]));
+              window.localStorage.setItem(`skillbridge_all_passed_skills_${currentUserId}`, JSON.stringify([...existingAll, activeSkillGap]));
             }
           }
         } catch {}
@@ -2723,7 +2733,37 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
         </div>
       </div>
 
+      {/* Empty State for Newly Registered Users with No Target Roles */}
+      {!isLoadingGaps && roles.length === 0 && (
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0e131f] p-8 sm:p-12 text-center space-y-6 shadow-xs animate-fadeIn">
+          <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center mx-auto text-indigo-600 dark:text-indigo-400">
+            <Award className="w-8 h-8" />
+          </div>
+          <div className="max-w-md mx-auto space-y-2">
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+              No Skill Assessments Yet
+            </h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+              Practical tasks, rubric verification, and AI Socratic mentoring unlock automatically once you establish a target job or career goal.
+            </p>
+          </div>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab && setActiveTab('gaps')}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold hover:bg-slate-800 dark:hover:bg-slate-100 transition-all shadow-sm cursor-pointer"
+            >
+              <Target className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Go to Skill Gap & Set Target Role</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* REAL SKILL GAPS SELECTOR TABS */}
+      {roles.length > 0 && (
+      <>
       <div className="space-y-2">
         <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
           <span className="font-semibold flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
@@ -2797,7 +2837,8 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
         </div>
       )}
 
-      {/* WORKSTATION GRID */}
+      {/* WORKSTATION GRID — only shown when there are actual skill gaps to work on */}
+      {skillGaps.length > 0 && activeSkillGap ? (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Workstation Column */}
         <div className="lg:col-span-2 space-y-5">
@@ -3826,6 +3867,33 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
           </div>
         </div>
       </div>
+      ) : !isLoadingGaps && (
+        /* Empty state — no skill gaps loaded yet for this user */
+        <div className="flex flex-col items-center justify-center py-20 px-6 text-center gap-6">
+          <div className="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800/60 flex items-center justify-center border border-slate-200/80 dark:border-slate-700/60">
+            <Zap className="w-8 h-8 text-slate-400 dark:text-slate-500" />
+          </div>
+          <div className="space-y-2 max-w-sm">
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+              No Practical Tasks Yet
+            </h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+              Practical tasks and rubric assessments are generated from your analyzed skill gaps. Analyze a job description or career goal to get started.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab && setActiveTab('gaps')}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold hover:bg-slate-800 dark:hover:bg-slate-100 transition-all shadow-sm cursor-pointer"
+          >
+            <Target className="w-3.5 h-3.5 text-indigo-500" />
+            <span>Analyze a Role or Goal</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+      </>
+      )}
     </div>
   );
 }

@@ -118,20 +118,19 @@ describe('RoadmapPage Component (Member 4)', () => {
     expect(setActiveTabMock).toHaveBeenCalledWith('assessment');
   });
 
-  it('recalculates burn-rate when deadline days option is clicked', async () => {
+  it('displays target deadline indicator and navigates to skill gap for timeframe adjustments', async () => {
     render(<RoadmapPage setActiveTab={setActiveTabMock} />);
 
     await waitFor(() => {
       expect(screen.getByText(/Complete PostgreSQL Practical Assessment/i)).toBeInTheDocument();
     });
 
-    const day7Btn = screen.getByRole('button', { name: '7 Days' });
-    fireEvent.click(day7Btn);
+    expect(screen.getByText(/Target Deadline:/i)).toBeInTheDocument();
 
-    // Pace should update based on 14h remaining over 7 days
-    await waitFor(() => {
-      expect(screen.getByText(/Based on 14h remaining over 7 days/i)).toBeInTheDocument();
-    });
+    const adjustBtn = screen.getByRole('button', { name: /Adjust in Skill Gap/i });
+    fireEvent.click(adjustBtn);
+
+    expect(setActiveTabMock).toHaveBeenCalledWith('gaps');
   });
 
   it('displays automated system tracking indicator and has no manual checkbox controls', async () => {

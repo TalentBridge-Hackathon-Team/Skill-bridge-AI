@@ -21,7 +21,7 @@ try:
 except ImportError:
     pass
 
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-skillbridge-hackathon-mvp-secret-key-2026')
+SECRET_KEY = os.getenv('SECRET_KEY')
 
 DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 'yes')
 
@@ -83,6 +83,8 @@ TEMPLATES = [
 WSGI_APPLICATION = 'skillbridge_backend.wsgi.application'
 
 tmpPostgres = urlparse(os.getenv("DATABASE_URL"))
+_db_options = dict(parse_qsl(tmpPostgres.query))
+_db_options.setdefault('connect_timeout', 10)
 
 DATABASES = {
     'default': {
@@ -92,7 +94,7 @@ DATABASES = {
         'PASSWORD': tmpPostgres.password,
         'HOST': tmpPostgres.hostname,
         'PORT': 5432,
-        'OPTIONS': dict(parse_qsl(tmpPostgres.query)),
+        'OPTIONS': _db_options,
         'CONN_MAX_AGE': 600,
         'CONN_HEALTH_CHECKS': True,
     }
@@ -121,6 +123,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
+    'EXCEPTION_HANDLER': 'skillbridge_backend.exceptions.custom_exception_handler',
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],

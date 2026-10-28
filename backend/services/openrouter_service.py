@@ -197,14 +197,18 @@ _GENERIC_DEFAULTS: List[Dict[str, Any]] = [
 
 def _extract_role_title(job_text: str) -> str:
     """
-    Attempts to heuristically extract a role title from the first 3 lines of
-    the JD. Falls back to 'Software Role' if nothing identifiable is found.
+    Attempts to heuristically extract a role title from the first few lines of
+    the JD. Falls back to 'Software Engineer' if nothing identifiable is found.
     """
     title_patterns = [
-        r"(?:job title|role|position|we are (?:hiring|looking for)|seeking a?)\s*[:\-]?\s*(.+)",
-        r"^(.{5,60}(?:developer|engineer|analyst|designer|scientist|manager|lead|intern|specialist|architect))",
+        # Explicit labels: Title: Senior Frontend Engineer, Role - Full Stack Developer
+        r"(?:(?:job\s+)?title|role|position)\s*[:\-]?\s*([^\n\r]+)",
+        # Intro phrases: We are looking for a Senior React Developer to... / Seeking an iOS Engineer...
+        r"(?:we are (?:hiring|looking for)|seeking|hiring for)\s+(?:a|an)?\s*([A-Za-z0-9/\-\s]+?(?:developer|engineer|analyst|designer|scientist|manager|lead|intern|specialist|architect))(?:\s+to|\s+who|\s+for|\.|\n|$)",
+        # Line starting directly with title
+        r"^([A-Za-z0-9/\-\s]{3,60}(?:developer|engineer|analyst|designer|scientist|manager|lead|intern|specialist|architect))",
     ]
-    first_lines = "\n".join(job_text.strip().split("\n")[:5])
+    first_lines = "\n".join(job_text.strip().split("\n")[:6])
     for pattern in title_patterns:
         match = re.search(pattern, first_lines, re.IGNORECASE | re.MULTILINE)
         if match:
@@ -212,7 +216,7 @@ def _extract_role_title(job_text: str) -> str:
             # Sanity check: not too long, not empty
             if 3 < len(candidate) < 80:
                 return candidate
-    return "Software Role"
+    return "Software Engineer"
 
 
 def _rule_engine_extract(job_text: str) -> Dict[str, Any]:
@@ -546,7 +550,12 @@ class OpenRouterService:
 
                 parsed = json.loads(candidate_json)
                 if "requirements" in parsed and len(parsed["requirements"]) > 0:
-                    if role_title:
+                    if not parsed.get("role_title") or parsed.get("role_title") in ("Software Engineer", "Software Role", "Junior Backend Developer"):
+                        if role_title and role_title not in ("Software Engineer", "Software Role", "Junior Backend Developer"):
+                            parsed["role_title"] = role_title
+                        else:
+                            parsed["role_title"] = _extract_role_title(job_text)
+                    elif role_title and role_title not in ("Software Engineer", "Software Role", "Junior Backend Developer"):
                         parsed["role_title"] = role_title
                     source_model = llm_result.get("model", "")
                     parsed.setdefault("extraction_source", f"live_ai_{source_model}" if source_model else "live_ai")
@@ -668,7 +677,7 @@ class OpenRouterService:
                 {"skill_name": "Automated Testing", "category": "testing", "importance": "preferred", "source_excerpt": "Software quality assurance"}
             ]
 
-        final_title = role_title or ("Software Engineer" if not detected_requirements else "Custom Career Target")
+        final_title = role_title if (role_title and role_title not in ("Software Engineer", "Software Role", "Junior Backend Developer")) else _extract_role_title(job_text)
         return {
             "role_title": final_title,
             "summary": f"Extracted {len(detected_requirements)} verified technical requirements for {final_title}.",

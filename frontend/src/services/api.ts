@@ -36,12 +36,30 @@ const CACHE_TTL_MS = 25_000; // 25 seconds fast client-side TTL
 export function clearApiCache(prefix?: string): void {
   if (!prefix) {
     apiCache.clear();
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        const keys = Object.keys(window.sessionStorage);
+        for (const k of keys) {
+          if (k.startsWith('sb_cache_')) window.sessionStorage.removeItem(k);
+        }
+      }
+    } catch {}
   } else {
     for (const key of apiCache.keys()) {
       if (key.includes(prefix)) {
         apiCache.delete(key);
       }
     }
+    try {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        const keys = Object.keys(window.sessionStorage);
+        for (const k of keys) {
+          if (k.startsWith('sb_cache_') && k.includes(prefix)) {
+            window.sessionStorage.removeItem(k);
+          }
+        }
+      }
+    } catch {}
   }
 }
 
@@ -59,6 +77,18 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
       if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
         return cached.data as T;
       }
+      try {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+          const raw = window.sessionStorage.getItem(`sb_cache_${cacheKey}`);
+          if (raw) {
+            const entry = JSON.parse(raw);
+            if (Date.now() - entry.timestamp < CACHE_TTL_MS) {
+              apiCache.set(cacheKey, entry);
+              return entry.data as T;
+            }
+          }
+        }
+      } catch {}
     } else {
       // Mutations invalidate cached queries to prevent stale data
       clearApiCache();
@@ -81,18 +111,43 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
       }
       let errorDetail = '';
       try {
-        const errorJson = await res.json();
-        if (typeof errorJson === 'string') {
-          errorDetail = errorJson;
-        } else if (errorJson && typeof errorJson === 'object') {
-          errorDetail = errorJson.message || errorJson.error || errorJson.detail || Object.values(errorJson).flat().join(' ');
+        const rawErrText = typeof res.text === 'function' ? await res.text() : JSON.stringify(await res.json());
+        try {
+          const errorJson = JSON.parse(rawErrText);
+          if (typeof errorJson === 'string') {
+            errorDetail = errorJson;
+          } else if (errorJson && typeof errorJson === 'object') {
+            errorDetail = errorJson.message || errorJson.error || errorJson.detail || Object.values(errorJson).flat().join(' ');
+          }
+        } catch {
+          if (res.status === 500) {
+            errorDetail = 'Server encountered a temporary issue. Please try again shortly.';
+          } else if (res.status === 502 || res.status === 503 || res.status === 504) {
+            errorDetail = 'Service temporarily unavailable. Please retry in a moment.';
+          }
         }
       } catch {}
       throw new Error(errorDetail ? `HTTP ${res.status}: ${errorDetail}` : `HTTP ${res.status}: ${res.statusText}`);
     }
-    const data = await res.json();
+    let data: any = {};
+    if (typeof res.text === 'function') {
+      const rawSuccessText = await res.text();
+      try {
+        data = rawSuccessText ? JSON.parse(rawSuccessText) : {};
+      } catch {
+        throw new Error(`Received non-JSON response from ${endpoint} (HTTP ${res.status})`);
+      }
+    } else {
+      data = await res.json();
+    }
     if (isGet) {
-      apiCache.set(cacheKey, { data, timestamp: Date.now() });
+      const entry = { data, timestamp: Date.now() };
+      apiCache.set(cacheKey, entry);
+      try {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+          window.sessionStorage.setItem(`sb_cache_${cacheKey}`, JSON.stringify(entry));
+        }
+      } catch {}
     }
     return data;
   } catch (err) {

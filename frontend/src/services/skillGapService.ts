@@ -37,22 +37,27 @@ export interface SkillGapAnalysisResponse {
 }
 
 class SkillGapService {
-  private selectedRoleId: string = 'job_15f49367';
+  private selectedRoleId: string = '';
+
+  /** Call this on login/register to prevent stale role IDs from a previous session leaking through. */
+  clearSession(): void {
+    this.selectedRoleId = '';
+  }
 
   private resolveUserId(userId?: string): string {
     if (userId && userId !== 'demo_user') return userId;
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        const storedId = window.localStorage.getItem('skillbridge_user_id');
-        if (storedId) return storedId;
         const storedUser = window.localStorage.getItem('skillbridge_auth_user');
         if (storedUser) {
           const u = JSON.parse(storedUser);
           if (u?.id) return String(u.id);
         }
+        const storedId = window.localStorage.getItem('skillbridge_auth_user_id') || window.localStorage.getItem('skillbridge_user_id');
+        if (storedId) return storedId;
       }
     } catch {}
-    return 'usr_demo_001';
+    return 'demo_user';
   }
 
   /**
@@ -184,9 +189,11 @@ class SkillGapService {
     const found = roles.find(r => r.id === roleId);
     if (found) return found;
 
+    // Only fall through to a direct fetch if the analysis belongs to the current user.
+    // Fetching by ID without ownership check would return any user's analysis.
     try {
       const a = await api.getJobAnalysis(roleId);
-      if (a && a.analysis_id) {
+      if (a && a.analysis_id && a.user_id && String(a.user_id) === String(effectiveUserId)) {
         return {
           id: a.analysis_id,
           role_title: a.role_title,
@@ -202,7 +209,7 @@ class SkillGapService {
       }
     } catch {}
 
-    return roles[0];
+    return undefined;
   }
 
   setSelectedRole(roleId: string): void {
@@ -211,6 +218,35 @@ class SkillGapService {
 
   getSelectedRoleId(): string {
     return this.selectedRoleId;
+  }
+
+  setRoleBudget(roleId: string, daysRemaining: number, studyHoursPerWeek: number): void {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(`skillbridge_budget_${roleId}`, JSON.stringify({
+          daysRemaining,
+          studyHoursPerWeek
+        }));
+      }
+    } catch {}
+  }
+
+  getRoleBudget(roleId: string, defaultDays = 14, defaultHours = 14): { daysRemaining: number; studyHoursPerWeek: number } {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const raw = window.localStorage.getItem(`skillbridge_budget_${roleId}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.daysRemaining === 'number') {
+            return {
+              daysRemaining: parsed.daysRemaining,
+              studyHoursPerWeek: parsed.studyHoursPerWeek || defaultHours
+            };
+          }
+        }
+      }
+    } catch {}
+    return { daysRemaining: defaultDays, studyHoursPerWeek: defaultHours };
   }
 
   /**
@@ -238,7 +274,17 @@ class SkillGapService {
   ): Promise<SkillGapAnalysisResponse> {
     const effectiveUserId = this.resolveUserId(userId);
     const targetRoleId = roleId || this.selectedRoleId;
+    if (!targetRoleId) {
+      throw new Error('No target role selected.');
+    }
+
+    // Verify the role actually belongs to this user before running the analysis.
+    // This prevents a stale selectedRoleId (from a previous user's session) from
+    // causing the current user to see another user's skill gap data.
     const role = await this.getTargetRole(targetRoleId, effectiveUserId);
+    if (!role) {
+      throw new Error(`Role '${targetRoleId}' not found for user '${effectiveUserId}'.`);
+    }
     const profile = await this.getProfile(effectiveUserId);
 
     const daysRemaining =
@@ -256,7 +302,11 @@ class SkillGapService {
     }
 
     const localPassedSkills: string[] = typeof window !== 'undefined' && window.localStorage
-      ? JSON.parse(window.localStorage.getItem('skillbridge_all_passed_skills') || '[]')
+      ? JSON.parse(
+          window.localStorage.getItem(`skillbridge_all_passed_skills_${effectiveUserId}`) ||
+          window.localStorage.getItem('skillbridge_all_passed_skills') ||
+          '[]'
+        )
       : [];
     const localPassedSet = new Set(localPassedSkills.map(s => s.toLowerCase().trim()));
 

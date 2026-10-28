@@ -95,13 +95,17 @@ class JobAnalysisListCreateView(APIView):
 
     def get(self, request):
         query_user = request.query_params.get("user_id")
-        auth_user = _get_user_id(request)
-        candidates = {"usr_demo_001", "demo_user"}
-        if query_user:
-            candidates.add(str(query_user))
-        if auth_user:
-            candidates.add(str(auth_user))
-        analyses = JobAnalysis.objects.filter(user_id__in=list(candidates)).prefetch_related('requirements').order_by('-created_at')
+        auth_user = str(request.user.id) if (getattr(request, "user", None) and request.user.is_authenticated) else None
+
+        target_user = query_user or auth_user
+        if not target_user or target_user in ("usr_demo_001", "demo_user"):
+            candidates = ["usr_demo_001", "demo_user"]
+        else:
+            candidates = [str(target_user)]
+            if auth_user:
+                candidates.extend([str(auth_user), getattr(request.user, "username", "")])
+
+        analyses = JobAnalysis.objects.filter(user_id__in=list(set(filter(None, candidates)))).prefetch_related('requirements').order_by('-created_at')
         serializer = JobAnalysisSerializer(analyses, many=True)
         return Response(serializer.data)
 
@@ -120,10 +124,11 @@ class JobAnalysisListCreateView(APIView):
             )
 
         role_title = request.data.get("role_title") or request.data.get("title")
-        if not role_title and raw_job_text and len(raw_job_text.strip()) < 80 and "\n" not in raw_job_text.strip():
-            role_title = raw_job_text.strip()
+        if not role_title and raw_job_text:
+            from services.openrouter_service import _extract_role_title
+            role_title = _extract_role_title(raw_job_text)
         if not role_title:
-            role_title = "Junior Backend Developer"
+            role_title = "Software Engineer"
         mode = request.data.get("mode", "job_specific")
 
         try:

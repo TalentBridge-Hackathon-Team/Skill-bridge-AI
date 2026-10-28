@@ -21,27 +21,32 @@ class JobAnalysisMatchView(APIView):
         if not analysis:
             clean_title = analysis_id.replace('role_', '').replace('_', ' ').strip()
             analysis = JobAnalysis.objects.prefetch_related('requirements').filter(role_title__icontains=clean_title).first()
-        if not analysis:
-            analysis = JobAnalysis.objects.prefetch_related('requirements').first()
 
         if not analysis:
             return Response({"error": "Job analysis not found in database"}, status=status.HTTP_404_NOT_FOUND)
 
-        # 2. Allow user_id override from query param or body, defaulting to analysis.user_id
+        # 2. Allow user_id override from query param or body, defaulting to authenticated user or analysis.user_id
+        auth_user_id = str(request.user.id) if (getattr(request, "user", None) and request.user.is_authenticated) else None
         user_id = (
             request.query_params.get("user_id")
             or (request.data.get("user_id") if isinstance(request.data, dict) else None)
+            or auth_user_id
             or analysis.user_id
         )
 
         # Retrieve profile for user from Neon database
-        profile = (
-            UserProfile.objects.prefetch_related('evidence_records').filter(user_id=user_id).first()
-            or UserProfile.objects.prefetch_related('evidence_records').filter(user_id=analysis.user_id).first()
-            or UserProfile.objects.prefetch_related('evidence_records').filter(user_id="usr_demo_001").first()
-            or UserProfile.objects.prefetch_related('evidence_records').filter(user_id="demo_user").first()
-            or UserProfile.objects.prefetch_related('evidence_records').first()
-        )
+        if user_id in ("usr_demo_001", "demo_user"):
+            profile = (
+                UserProfile.objects.prefetch_related('evidence_records').filter(user_id=user_id).first()
+                or UserProfile.objects.prefetch_related('evidence_records').filter(user_id="usr_demo_001").first()
+                or UserProfile.objects.prefetch_related('evidence_records').filter(user_id="demo_user").first()
+            )
+        else:
+            profile = UserProfile.objects.prefetch_related('evidence_records').filter(user_id=user_id).first()
+            if not profile and auth_user_id:
+                profile = UserProfile.objects.prefetch_related('evidence_records').filter(user_id=auth_user_id).first()
+            # Do NOT auto-create a profile here — that would silently assign the
+            # analysis owner's role to a different user.  Let the caller handle it.
 
         if not profile:
             return Response(
@@ -226,8 +231,6 @@ class JobAnalysisGapsView(APIView):
         if not analysis:
             clean_title = analysis_id.replace('role_', '').replace('_', ' ').strip()
             analysis = JobAnalysis.objects.filter(role_title__icontains=clean_title).first()
-        if not analysis:
-            analysis = JobAnalysis.objects.first()
 
         if not analysis:
             return Response({"error": "Job analysis not found in database"}, status=status.HTTP_404_NOT_FOUND)

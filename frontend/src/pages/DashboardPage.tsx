@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { skillGapService } from '../services/skillGapService';
+import { useAuth } from '../context/AuthContext';
 import type { UserProfile, JobAnalysis, RoadmapTask } from '../types';
 
 interface DashboardPageProps {
@@ -17,6 +18,10 @@ interface DashboardPageProps {
 }
 
 export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
+  const { user, isLoading: authLoading } = useAuth();
+  // Derive the real user ID only after auth has resolved; never fall back to a demo ID
+  const currentUserId = !authLoading && user ? String(user.id) : null;
+
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [analyses, setAnalyses] = useState<JobAnalysis[]>([]);
   const [roadmapTasks, setRoadmapTasks] = useState<RoadmapTask[]>([]);
@@ -26,16 +31,19 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
   const [showBlueprintDetails, setShowBlueprintDetails] = useState<boolean>(true);
 
   useEffect(() => {
+    // Don't fetch anything until we know who is logged in
+    if (authLoading || !currentUserId) return;
+
     let isCancelled = false;
 
     async function loadDashboardData() {
       // Execute all 4 primary data fetches concurrently to eliminate sequential network waterfall
       try {
         const [profileRes, analysesRes, gapDataRes, roadmapRes] = await Promise.allSettled([
-          api.getProfile('demo_user'),
-          api.getJobAnalyses('demo_user'),
-          skillGapService.runAnalysis(),
-          api.getRoadmap('demo_user')
+          api.getProfile(currentUserId!),
+          api.getJobAnalyses(currentUserId!),
+          skillGapService.runAnalysis(undefined, undefined, undefined, currentUserId!),
+          api.getRoadmap(currentUserId!)
         ]);
 
         if (isCancelled) return;
@@ -54,8 +62,11 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
         }
       } catch {}
 
+      // Only show task score for the current user's passed skills
       try {
-        const passedRaw = typeof window !== 'undefined' ? window.localStorage?.getItem('skillbridge_all_passed_skills') : null;
+        const passedRaw = typeof window !== 'undefined'
+          ? window.localStorage?.getItem(`skillbridge_all_passed_skills_${currentUserId}`)
+          : null;
         if (passedRaw) {
           const list: string[] = JSON.parse(passedRaw);
           if (list.length > 0) {
@@ -68,11 +79,13 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
 
     loadDashboardData();
     return () => { isCancelled = true; };
-  }, []);
+  }, [authLoading, currentUserId]);
 
   const hasResume = Boolean(profile?.resume_file);
   const hasAnalysis = analyses.length > 0;
-  const studentName = profile?.name ? profile.name.split(' ')[0] : 'Learner';
+  const studentName = profile?.name
+    ? profile.name.split(' ')[0]
+    : (user?.name ? user.name.split(' ')[0] : (user?.email ? user.email.split('@')[0] : 'Learner'));
 
   // Dynamic ATS Score derived from actual Profile, Resume & Verified Project Evidence
   const atsScore = useMemo(() => {

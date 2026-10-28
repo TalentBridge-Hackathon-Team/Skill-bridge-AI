@@ -31,6 +31,17 @@ function AppShell() {
   const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login');
   const [pendingTab, setPendingTab] = useState<string | null>(null);
   const [authPromptMessage, setAuthPromptMessage] = useState<string | null>(null);
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([activeTab]));
+
+  // Track visited tabs to preserve them in DOM and prevent redundant reloads
+  useEffect(() => {
+    setVisitedTabs(prev => {
+      if (prev.has(activeTab)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
 
   // If user becomes authenticated, automatically transition to the pending protected tab
   useEffect(() => {
@@ -127,12 +138,24 @@ function AppShell() {
         />
 
         <main className="flex-1 p-6 sm:p-8 max-w-7xl w-full mx-auto">
-          {activeTab === 'dashboard' && <DashboardPage setActiveTab={handleTabChange} />}
-          {activeTab === 'profile' && <ProfilePage setActiveTab={handleTabChange} />}
-          {activeTab === 'analysis' && <JobAnalysisPage setActiveTab={handleTabChange} />}
-          {activeTab === 'gaps' && <SkillGapPage setActiveTab={handleTabChange} />}
-          {activeTab === 'assessment' && <AssessmentPage setActiveTab={handleTabChange} />}
-          {activeTab === 'roadmap' && <RoadmapPage setActiveTab={handleTabChange} />}
+          <div style={{ display: activeTab === 'dashboard' ? 'block' : 'none' }}>
+            {visitedTabs.has('dashboard') && <DashboardPage setActiveTab={handleTabChange} />}
+          </div>
+          <div style={{ display: activeTab === 'profile' ? 'block' : 'none' }}>
+            {visitedTabs.has('profile') && <ProfilePage setActiveTab={handleTabChange} />}
+          </div>
+          <div style={{ display: activeTab === 'analysis' ? 'block' : 'none' }}>
+            {visitedTabs.has('analysis') && <JobAnalysisPage setActiveTab={handleTabChange} />}
+          </div>
+          <div style={{ display: activeTab === 'gaps' ? 'block' : 'none' }}>
+            {visitedTabs.has('gaps') && <SkillGapPage setActiveTab={handleTabChange} />}
+          </div>
+          <div style={{ display: activeTab === 'assessment' ? 'block' : 'none' }}>
+            {visitedTabs.has('assessment') && <AssessmentPage setActiveTab={handleTabChange} />}
+          </div>
+          <div style={{ display: activeTab === 'roadmap' ? 'block' : 'none' }}>
+            {visitedTabs.has('roadmap') && <RoadmapPage setActiveTab={handleTabChange} />}
+          </div>
         </main>
 
         <footer className="border-t border-slate-200/80 dark:border-slate-800/80 bg-white/50 dark:bg-[#0e131f]/50 px-8 py-3 text-xs text-slate-400 dark:text-slate-500 flex items-center justify-between">

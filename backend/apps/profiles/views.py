@@ -75,14 +75,14 @@ class ProfileMeView(APIView):
 
         profile = UserProfile.objects.filter(user_id__in=user_candidates).first()
         if not profile:
-            # Auto-create on first access with registered details if available
-            reg_name = "Demo User"
+            # Auto-create on first access with registered details — no default role
+            reg_name = ""
             if getattr(request, "user", None) and request.user.is_authenticated:
                 reg_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
             profile = UserProfile.objects.create(
                 user_id=user_id,
                 name=reg_name,
-                target_role="Junior Backend Developer",
+                target_role="",
                 education="",
                 skills=[]
             )
@@ -127,7 +127,7 @@ class ProfileMeView(APIView):
                         f"{request.user.first_name} {request.user.last_name}".strip()
                         or request.user.username
                     ),
-                    target_role=request.data.get("target_role", "Junior Backend Developer")
+                    target_role=request.data.get("target_role", "")
                 )
             else:
                 return Response(
@@ -184,7 +184,7 @@ class ProfileEvidenceView(APIView):
             profile = UserProfile.objects.create(
                 user_id=caller_user_id,
                 name="Demo User",
-                target_role="Junior Backend Developer"
+                target_role=""
             )
 
         data = request.data.copy() if hasattr(request.data, "copy") else dict(request.data)

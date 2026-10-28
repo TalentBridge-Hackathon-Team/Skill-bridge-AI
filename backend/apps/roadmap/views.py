@@ -141,13 +141,20 @@ class RoadmapListView(APIView):
     """
     permission_classes = [AllowAny]
     def get(self, request):
-        user_id = request.query_params.get("user_id", "usr_demo_001")
-        deadline_days = int(request.query_params.get("deadline_days", 14))
-        daily_available = float(request.query_params.get("daily_available", 2.5))
+        auth_id = str(request.user.id) if (getattr(request, "user", None) and request.user.is_authenticated) else None
+        effective_uid = auth_id or request.query_params.get("user_id")
 
-        user_candidates = list(filter(None, {user_id, "usr_demo_001", "demo_user"}))
-        for uid in user_candidates:
-            ensure_default_roadmap(uid)
+        if not effective_uid or effective_uid in ("usr_demo_001", "demo_user"):
+            user_candidates = ["usr_demo_001", "demo_user"]
+            for uid in user_candidates:
+                ensure_default_roadmap(uid)
+        else:
+            user_candidates = [str(effective_uid)]
+            if auth_id:
+                user_candidates.append(auth_id)
+                if getattr(request.user, "username", None):
+                    user_candidates.append(request.user.username)
+            user_candidates = list(set(filter(None, user_candidates)))
 
         # Cross-synchronize with completed assessments and verified profile evidence
         try:

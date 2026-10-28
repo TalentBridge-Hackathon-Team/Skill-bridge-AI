@@ -4,6 +4,7 @@ import { Sparkles, ArrowRight, Image as ImageIcon, Calendar, Clock, Compass, Bri
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { skillGapService } from '../services/skillGapService';
+import { updateDeadlineTimestamp } from '../utils/horizonCapacityEngine';
 import type { Requirement, ProductMode, SkillProfileSummary } from '../types';
 
 interface JobAnalysisPageProps {
@@ -51,10 +52,17 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
               }))
             );
             setActiveAnalysisId(latest.analysis_id);
-            setRestoredAnalysisTitle(latest.role_title || 'Previous Job Posting');
+            setRestoredAnalysisTitle(latest.role_title || (latest.mode === 'goal_based' ? 'Previous Goal Target' : 'Previous Job Posting'));
             skillGapService.setSelectedRole(latest.analysis_id);
-            if (latest.mode) setMode(latest.mode as any);
-            if (latest.job_text) setJobText(latest.job_text);
+            if (latest.mode === 'goal_based') {
+              setMode('goal_based');
+              if (latest.job_text) setGoalText(latest.job_text);
+              setJobText('');
+            } else {
+              setMode('job_specific');
+              if (latest.job_text) setJobText(latest.job_text);
+              setGoalText('');
+            }
             if (latest.days_remaining) setDaysRemaining(latest.days_remaining);
             if (latest.study_hours_per_week) setStudyHoursPerWeek(latest.study_hours_per_week);
           }
@@ -65,6 +73,7 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
 
   const handleResetForm = () => {
     setJobText('');
+    setGoalText('');
     setJobImage(null);
     setExtractedRequirements([]);
     setActiveAnalysisId(null);
@@ -96,15 +105,28 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
     setIsExtracting(true);
     setExtractionError(null);
     setExtractionWarning(null);
+    setRestoredAnalysisTitle(null);
 
     try {
       if (mode === 'job_specific') {
         const formData = new FormData();
         if (jobText) formData.append('job_text', jobText);
         if (jobImage) formData.append('job_image', jobImage);
-        if (jobText && jobText.trim().length < 80 && !jobText.includes('\n')) {
-          formData.append('role_title', jobText.trim());
+
+        // Dynamically extract role title if present in text headers
+        let extractedRole = '';
+        if (jobText) {
+          const titleMatch = jobText.match(/(?:(?:job\s+)?title|role|position)\s*[:\-]?\s*([^\n\r]+)/i);
+          if (titleMatch && titleMatch[1]) {
+            extractedRole = titleMatch[1].trim();
+          } else if (jobText.trim().length < 80 && !jobText.includes('\n')) {
+            extractedRole = jobText.trim();
+          }
         }
+        if (extractedRole) {
+          formData.append('role_title', extractedRole);
+        }
+
         formData.append('days_remaining', String(daysRemaining));
         formData.append('study_hours_per_week', String(studyHoursPerWeek));
         formData.append('user_id', currentUserId);
@@ -126,6 +148,7 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
         }
         // Store the analysis_id so Confirm can call PATCH /requirements/ and select role
         if (result.analysis_id) {
+          updateDeadlineTimestamp(result.analysis_id, daysRemaining);
           setActiveAnalysisId(result.analysis_id);
           skillGapService.setSelectedRole(result.analysis_id);
         }
@@ -160,6 +183,7 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
           );
         }
         if (goalResult.analysis_id) {
+          updateDeadlineTimestamp(goalResult.analysis_id, daysRemaining);
           setActiveAnalysisId(goalResult.analysis_id);
           skillGapService.setSelectedRole(goalResult.analysis_id);
         }
@@ -422,13 +446,40 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
           ) : (
             <>
               {/* Mode B: Goal-Based Formulation */}
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800/80">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse" />
-                  <h2 className="text-base font-semibold text-white">Career Goal & Skill Target</h2>
+                  <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Career Goal & Skill Target</h2>
                 </div>
-                <span className="text-xs text-cyan-400 font-medium">No Job Posting Needed</span>
+                <div className="flex items-center gap-3">
+                  {(goalText || extractedRequirements.length > 0) && (
+                    <button
+                      type="button"
+                      onClick={handleResetForm}
+                      className="text-xs text-rose-500 hover:text-rose-400 font-medium hover:underline transition-colors"
+                    >
+                      Clear / Start New
+                    </button>
+                  )}
+                  <span className="text-xs text-cyan-400 font-medium">No Job Posting Needed</span>
+                </div>
               </div>
+
+              {restoredAnalysisTitle && (
+                <div className="flex items-center justify-between text-xs px-3 py-2 rounded-lg bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-800/50 text-cyan-700 dark:text-cyan-300">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Restored previous session for <strong>{restoredAnalysisTitle}</strong></span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetForm}
+                    className="underline hover:text-cyan-900 dark:hover:text-white"
+                  >
+                    Start fresh
+                  </button>
+                </div>
+              )}
 
               <div className="space-y-3">
                 <div>
@@ -504,22 +555,66 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
                   </div>
                 )}
 
-                {/* Study Pace */}
-                <div className="p-3.5 rounded-lg border border-cyan-900/40 bg-cyan-950/20 flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <span className="text-xs font-semibold text-cyan-300">Planned Learning Pace</span>
-                    <p className="text-[11px] text-slate-400">Weekly self-study commitment</p>
+                {/* Target Horizon & Study Pace Controls for Mode B */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-lg border border-cyan-900/40 bg-cyan-950/20">
+                  <div>
+                    <label className="flex items-center gap-1.5 text-xs font-semibold text-cyan-300 mb-1">
+                      <Calendar className="w-3.5 h-3.5" /> Target Milestone Horizon
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={3}
+                        max={180}
+                        value={daysRemaining}
+                        onChange={(e) => setDaysRemaining(Number(e.target.value) || 1)}
+                        className="w-20 rounded border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs text-white focus:outline-none focus:border-cyan-500"
+                      />
+                      <span className="text-xs text-slate-400">days target</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-2">
+                      {[14, 30, 60, 90].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setDaysRemaining(preset)}
+                          className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+                            daysRemaining === preset
+                              ? 'bg-cyan-600 text-white border-cyan-500'
+                              : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-cyan-300'
+                          }`}
+                        >
+                          {preset}d
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={1}
-                      max={40}
-                      value={studyHoursPerWeek}
-                      onChange={(e) => setStudyHoursPerWeek(Number(e.target.value) || 1)}
-                      className="w-16 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500 text-center"
-                    />
-                    <span className="text-xs text-slate-400">hrs/week</span>
+
+                  <div>
+                    <label className="flex items-center gap-1.5 text-xs font-semibold text-cyan-300 mb-1">
+                      <Clock className="w-3.5 h-3.5" /> Planned Learning Pace
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        max={40}
+                        value={studyHoursPerWeek}
+                        onChange={(e) => setStudyHoursPerWeek(Number(e.target.value) || 1)}
+                        className="w-20 rounded border border-slate-700 bg-slate-950 px-2.5 py-1 text-xs text-white focus:outline-none focus:border-cyan-500"
+                      />
+                      <span className="text-xs text-slate-400">hrs / week</span>
+                    </div>
+                    <span className="text-[11px] text-slate-400 block mt-2">
+                      ~{Math.round((studyHoursPerWeek / 7) * 10) / 10} hrs / day commitment
+                    </span>
+                  </div>
+
+                  <div className="sm:col-span-2 pt-1 text-[11px] text-slate-400 flex items-center justify-between border-t border-cyan-900/30">
+                    <span>Calculated Available Study Time:</span>
+                    <span className="font-semibold text-cyan-300">
+                      {Math.round(daysRemaining * (studyHoursPerWeek / 7))} total hours
+                    </span>
                   </div>
                 </div>
               </div>

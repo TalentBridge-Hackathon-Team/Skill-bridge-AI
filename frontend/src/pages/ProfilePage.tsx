@@ -14,7 +14,7 @@ import type { UserProfile, SkillEvidence, ResumeUploadResponse, ProjectDescripti
 const MOCK_PROFILE: UserProfile = {
   user_id: 'demo_user',
   name: 'Alex Morgan',
-  target_role: 'Junior Backend Developer',
+  target_role: 'Junior Backend Developer',  // demo user intentionally has a role for showcase
   education: 'B.Sc. in Computer Science',
   experience_level: 'Entry Level',
   skills: ['Python', 'Django REST Framework', 'PostgreSQL', 'Git'],
@@ -50,7 +50,7 @@ const MOCK_EVIDENCE: SkillEvidence[] = [
 function validateProfile(p: UserProfile): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!p.name.trim()) errors.name = 'Name is required.';
-  if (!p.target_role.trim()) errors.target_role = 'Target role is required.';
+  if (!p.target_role.trim()) errors.target_role = 'Please enter your target role before saving.';
   const skills = typeof p.skills === 'string' ? p.skills : p.skills.join(', ');
   if (!skills.trim()) errors.skills = 'At least one skill is required.';
   if (p.study_capacity_hours_per_week !== undefined) {
@@ -83,19 +83,19 @@ interface ProfilePageProps {
 }
 
 export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePageProps) {
-  const { user } = useAuth();
-  const currentUserId = user ? String(user.id) : 'demo_user';
-
-  const isDemo = !user || currentUserId === 'demo_user' || user.username === 'demo';
+  const { user, isLoading: authLoading } = useAuth();
+  // Only treat as demo if auth has finished loading and there is genuinely no real user
+  const currentUserId = !authLoading && user ? String(user.id) : 'demo_user';
+  const isDemo = authLoading || !user || currentUserId === 'demo_user' || user.username === 'demo';
 
   const [profile, setProfile] = useState<UserProfile>(() => {
     if (!isDemo) {
       return {
         user_id: currentUserId,
-        name: user.full_name || user.username || '',
-        target_role: (user as any)?.target_role || '',
+        name: user?.full_name || user?.username || '',
+        target_role: '',
         education: '',
-        experience_level: 'Entry Level',
+        experience_level: '',
         skills: [],
         professional_background: '',
         project_descriptions: [],
@@ -129,14 +129,20 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
 
   // Load from backend on mount or when user changes
   useEffect(() => {
+    if (authLoading || !user) return; // wait for auth before fetching
     api.getProfile(currentUserId)
       .then((data) => {
         if (data) {
           const mergedData: UserProfile = {
             ...data,
-            name: (data.name && data.name !== 'Demo User' && data.name !== 'Demo Learner')
+            // Never show a stale demo name for a real user
+            name: (data.name && !['Demo User', 'Demo Learner', 'Alex Morgan', ''].includes(data.name))
               ? data.name
-              : (user?.full_name || user?.username || data.name || 'Alex Morgan'),
+              : (user?.full_name || user?.username || data.name || ''),
+            // Never show the preset role — if DB has it, treat as unset
+            target_role: (data.target_role === 'Junior Backend Developer' && !isDemo)
+              ? ''
+              : (data.target_role || ''),
             user_id: currentUserId,
           };
           setProfile(mergedData);
@@ -152,7 +158,7 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
           }));
         }
       });
-  }, [currentUserId, user]);
+  }, [currentUserId, user, authLoading]);
 
   // -------------------------------------------------------------------------
   // Profile save
@@ -325,7 +331,7 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
               {/* Target role */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Target Role *</label>
-                <input type="text" className={inputCls(fieldErrors.target_role)} value={profile.target_role} onChange={field('target_role')} />
+                <input type="text" className={inputCls(fieldErrors.target_role)} value={profile.target_role} placeholder="e.g. Backend Developer, Data Engineer…" onChange={field('target_role')} />
                 {fieldErrors.target_role && <p className="text-[11px] text-red-500 mt-0.5">{fieldErrors.target_role}</p>}
               </div>
 

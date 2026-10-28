@@ -15,6 +15,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { AuthUser, AuthResponse, LoginPayload, RegisterPayload } from '../types';
+import { skillGapService } from '../services/skillGapService';
 
 // ── Token storage keys ────────────────────────────────────────────────────────
 const ACCESS_KEY = 'sb_access';
@@ -40,31 +41,79 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // ── Raw fetch helpers (can't use api.ts here to avoid circular dependency) ────
 
 async function authPost<T>(endpoint: string, body: object): Promise<T> {
-  const res = await fetch(`${API_BASE}${endpoint}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    // Flatten DRF error dicts into a single readable message
-    const messages: string[] = [];
-    for (const key of Object.keys(data)) {
-      const val = data[key];
-      if (Array.isArray(val)) messages.push(...val);
-      else if (typeof val === 'string') messages.push(val);
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error('Unable to connect to the authentication server. Please check your connection.');
+  }
+
+  const rawText = await res.text();
+  let data: any = null;
+  try {
+    data = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    if (!res.ok) {
+      if (res.status === 500) {
+        throw new Error('Server encountered a temporary error. Please try again shortly.');
+      }
+      if (res.status === 502 || res.status === 503 || res.status === 504) {
+        throw new Error('Authentication service is temporarily unavailable. Please try again in a moment.');
+      }
+      throw new Error(`Authentication request failed (HTTP ${res.status}).`);
     }
-    throw new Error(messages.join(' ') || `Request failed (${res.status})`);
+    throw new Error('Received an invalid response format from server.');
+  }
+
+  if (!res.ok) {
+    if (typeof data === 'string') {
+      throw new Error(data);
+    }
+    if (data && typeof data === 'object') {
+      if (data.detail && typeof data.detail === 'string') {
+        throw new Error(data.detail);
+      }
+      if (data.error && typeof data.error === 'string') {
+        throw new Error(data.error);
+      }
+      if (data.message && typeof data.message === 'string') {
+        throw new Error(data.message);
+      }
+      const messages: string[] = [];
+      for (const key of Object.keys(data)) {
+        const val = data[key];
+        if (Array.isArray(val)) messages.push(...val);
+        else if (typeof val === 'string') messages.push(val);
+      }
+      if (messages.length > 0) {
+        throw new Error(messages.join(' '));
+      }
+    }
+    throw new Error(`Request failed (${res.status})`);
   }
   return data as T;
 }
 
 async function authGet<T>(endpoint: string, accessToken: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${endpoint}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${endpoint}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  } catch {
+    throw new Error('Network error verifying authentication session.');
+  }
   if (!res.ok) throw new Error(`Request failed (${res.status})`);
-  return res.json() as Promise<T>;
+  const rawText = await res.text();
+  try {
+    return rawText ? JSON.parse(rawText) as T : {} as T;
+  } catch {
+    throw new Error('Received an invalid response format from server.');
+  }
 }
 
 // ── Provider ─────────────────────────────────────────────────────────────────
@@ -87,6 +136,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(REFRESH_KEY);
       localStorage.removeItem('skillbridge_auth_user_id');
       localStorage.removeItem('skillbridge_auth_user');
+      try {
+        const keys = Object.keys(localStorage);
+        for (const k of keys) {
+          if (
+            k.startsWith('skillbridge_cached_') ||
+            k.startsWith('sb_cache_') ||
+            k.startsWith('skillbridge_all_passed_skills') ||
+            k.startsWith('skillbridge_passed_assessment_') ||
+            k.startsWith('skillbridge_verified_project_')
+          ) {
+            localStorage.removeItem(k);
+          }
+        }
+        localStorage.removeItem('skillbridge_selected_role');
+        localStorage.removeItem('skillbridge_selected_practice_project');
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+          window.sessionStorage.clear();
+        }
+      } catch {}
     };
     window.addEventListener('skillbridge_session_expired', handleExpired);
     return () => window.removeEventListener('skillbridge_session_expired', handleExpired);
@@ -101,9 +169,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     authGet<AuthUser>('/auth/me/', token)
       .then((u) => {
+        // On every page load where we verify the token, sweep any previous-user stale data.
+        // This handles users who had stale localStorage from before this fix was deployed.
+        const userId = String(u.id);
+        try {
+          const keys = Object.keys(localStorage);
+          for (const k of keys) {
+            if (
+              k.startsWith('skillbridge_passed_assessment_') ||
+              k.startsWith('skillbridge_verified_project_') ||
+              k.startsWith('skillbridge_all_passed_skills') ||
+              k.startsWith('skillbridge_cached_') ||
+              k.startsWith('sb_cache_')
+            ) {
+              // Only remove if the key is NOT scoped to this user's ID
+              if (!k.includes(`_${userId}`)) {
+                localStorage.removeItem(k);
+              }
+            }
+          }
+          // Remove flat (non-scoped) role/project selection keys
+          localStorage.removeItem('skillbridge_selected_role');
+          localStorage.removeItem('skillbridge_selected_practice_project');
+        } catch {}
+        // Clear the in-memory selected role so it doesn't bleed to the next user
+        skillGapService.clearSession();
         setUser(u);
         setSessionExpired(false);
-        localStorage.setItem('skillbridge_auth_user_id', String(u.id));
+        localStorage.setItem('skillbridge_auth_user_id', userId);
         localStorage.setItem('skillbridge_auth_user', JSON.stringify(u));
       })
       .catch(() => {
@@ -118,6 +211,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const storeTokens = (resp: AuthResponse) => {
+    // Clear any stale previous-user data before setting the new user's session
+    try {
+      const keys = Object.keys(localStorage);
+      for (const k of keys) {
+        if (
+          k.startsWith('skillbridge_cached_') ||
+          k.startsWith('sb_cache_') ||
+          k.startsWith('skillbridge_budget_') ||
+          k.startsWith('skillbridge_all_passed_skills') ||
+          k.startsWith('skillbridge_passed_assessment_') ||
+          k.startsWith('skillbridge_verified_project_')
+        ) {
+          localStorage.removeItem(k);
+        }
+      }
+      localStorage.removeItem('skillbridge_selected_role');
+      localStorage.removeItem('skillbridge_selected_practice_project');
+    } catch {}
+    skillGapService.clearSession();
+
     localStorage.setItem(ACCESS_KEY, resp.access);
     localStorage.setItem(REFRESH_KEY, resp.refresh);
     localStorage.setItem('skillbridge_auth_user_id', String(resp.user.id));
@@ -154,6 +267,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(REFRESH_KEY);
     localStorage.removeItem('skillbridge_auth_user_id');
     localStorage.removeItem('skillbridge_auth_user');
+    try {
+      // Clear all user-session data so the next user gets a clean slate
+      const keys = Object.keys(localStorage);
+      for (const k of keys) {
+        if (
+          k.startsWith('skillbridge_cached_') ||
+          k.startsWith('sb_cache_') ||
+          k.startsWith('skillbridge_budget_') ||
+          k.startsWith('skillbridge_all_passed_skills') ||
+          k.startsWith('skillbridge_passed_assessment_') ||
+          k.startsWith('skillbridge_verified_project_')
+        ) {
+          localStorage.removeItem(k);
+        }
+      }
+      // These flat (non-prefixed) keys hold role/project selections that belong to the previous user
+      localStorage.removeItem('skillbridge_selected_role');
+      localStorage.removeItem('skillbridge_selected_practice_project');
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.clear();
+      }
+    } catch {}
+    skillGapService.clearSession();
     setUser(null);
   }, []);
 

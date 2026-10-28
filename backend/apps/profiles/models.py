@@ -3,8 +3,8 @@ from pgvector.django import VectorField
 
 class UserProfile(models.Model):
     user_id = models.CharField(max_length=100, primary_key=True)
-    name = models.CharField(max_length=200, default="Demo Learner")
-    target_role = models.CharField(max_length=200, default="Junior Backend Developer")
+    name = models.CharField(max_length=200, default="")
+    target_role = models.CharField(max_length=200, default="", blank=True)
     education = models.CharField(max_length=255, blank=True)
     experience_level = models.CharField(max_length=100, default="Entry Level")
     skills = models.JSONField(default=list)  # list of skill names

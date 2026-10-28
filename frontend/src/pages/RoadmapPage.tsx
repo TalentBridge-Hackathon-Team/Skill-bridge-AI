@@ -137,12 +137,13 @@ const buildTasksFromSkillGaps = (
 };
 
 export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
-  const { user } = useAuth();
-  const currentUserId = user ? String(user.id) : undefined;
+  const { user, isLoading: authLoading } = useAuth();
+  const currentUserId = !authLoading && user ? String(user.id) : null;
+  const userScope = currentUserId ?? 'guest';
 
   // Target Role & Skill Gap State (Correlated with Assessment & Job Analysis)
   const [roles, setRoles] = useState<TargetRoleOption[]>([]);
-  const [selectedRoleId, setSelectedRoleId] = useState<string>('role_junior_backend');
+  const [selectedRoleId, setSelectedRoleId] = useState<string>('');
   const [isLoadingRoadmap, setIsLoadingRoadmap] = useState<boolean>(true);
 
   // Pacing & Feasibility Controls
@@ -153,18 +154,7 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
 
   // Dynamic Roadmap Tasks generated from real Skill Gaps
   const [tasks, setTasks] = useState<RoadmapTask[]>([]);
-  const [passedSkillsState, setPassedSkillsState] = useState<Set<string>>(() => {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const raw = window.localStorage.getItem('skillbridge_all_passed_skills');
-        if (raw) {
-          const list: string[] = JSON.parse(raw);
-          return new Set(list.map(s => s.toLowerCase().trim()));
-        }
-      }
-    } catch {}
-    return new Set();
-  });
+  const [passedSkillsState, setPassedSkillsState] = useState<Set<string>>(new Set());
   const [showCompletedList, setShowCompletedList] = useState<boolean>(false);
 
   const resolveEndpoint = (path: string) => {
@@ -174,21 +164,31 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
     return `http://localhost:8000${path}`;
   };
 
-  const loadRoadmapData = async (roleIdToLoad: string, days: number, dailyHours: number, extraPassed?: Set<string>) => {
-    setIsLoadingRoadmap(true);
+  const loadRoadmapData = async (roleIdToLoad: string, days: number, dailyHours: number, extraPassed?: Set<string>, silent: boolean = false) => {
+    if (!roleIdToLoad) {
+      if (!silent) setIsLoadingRoadmap(false);
+      return;
+    }
+    if (!silent) setIsLoadingRoadmap(true);
     try {
       const localPassedList = typeof window !== 'undefined' && typeof window.localStorage?.getItem === 'function'
-        ? JSON.parse(window.localStorage.getItem('skillbridge_all_passed_skills') || '[]')
+        ? JSON.parse(window.localStorage.getItem(`skillbridge_all_passed_skills_${userScope}`) || window.localStorage.getItem('skillbridge_all_passed_skills') || '[]')
         : [];
       const activePassed = new Set([
         ...Array.from(passedSkillsState),
         ...localPassedList.map((s: string) => s.toLowerCase().trim()),
         ...(extraPassed ? Array.from(extraPassed) : [])
       ]);
-      const analysis = await skillGapService.runAnalysis(roleIdToLoad, days, dailyHours * 7);
+      const analysis = await skillGapService.runAnalysis(roleIdToLoad, days, dailyHours * 7, currentUserId ?? undefined);
       if (analysis && analysis.results && analysis.results.length > 0) {
         const derivedTasks = buildTasksFromSkillGaps(analysis.results, days, activePassed);
         setTasks(derivedTasks);
+        try {
+          if (typeof window !== 'undefined' && window.localStorage) {
+            window.localStorage.setItem(`skillbridge_cached_roadmap_tasks_${userScope}`, JSON.stringify(derivedTasks));
+            window.localStorage.setItem(`skillbridge_cached_roadmap_tasks_${userScope}_${roleIdToLoad}`, JSON.stringify(derivedTasks));
+          }
+        } catch {}
       }
 
       // In background, cross-check /api/roadmap/ if available
@@ -221,25 +221,53 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
 
   // Load Real Target Roles and Derive Real Roadmap Tasks
   useEffect(() => {
+    // Wait for auth to resolve before fetching — prevents loading another user's roadmap
+    if (authLoading || !currentUserId) {
+      if (!authLoading) setIsLoadingRoadmap(false);
+      return;
+    }
+
     let isCancelled = false;
-    setIsLoadingRoadmap(true);
+    const hasCachedTasks = tasks.length > 0;
+    if (!hasCachedTasks) {
+      setIsLoadingRoadmap(true);
+    }
 
-    skillGapService.getTargetRoles(currentUserId).then(async (loadedRoles) => {
+    skillGapService.getTargetRoles(currentUserId ?? undefined).then(async (loadedRoles) => {
       if (isCancelled) return;
-      setRoles(loadedRoles);
-      const activeRoleId = (loadedRoles || []).find(r => r.id === skillGapService.getSelectedRoleId())?.id || loadedRoles[0]?.id || 'role_junior_backend';
-      setSelectedRoleId(activeRoleId);
+      setRoles(loadedRoles || []);
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem(`skillbridge_cached_target_roles_${userScope}`, JSON.stringify(loadedRoles || []));
+        }
+      } catch {}
 
-      await loadRoadmapData(activeRoleId, deadlineDays, dailyAvailableHours);
+      if (loadedRoles && loadedRoles.length > 0) {
+        const activeRole = (loadedRoles || []).find(r => r.id === skillGapService.getSelectedRoleId()) || loadedRoles[0];
+        const activeRoleId = activeRole?.id || loadedRoles[0].id;
+        setSelectedRoleId(activeRoleId);
+
+        const budget = skillGapService.getRoleBudget(activeRoleId, activeRole?.days_remaining ?? 14, activeRole?.study_hours_per_week ?? 17.5);
+        setDeadlineDays(budget.daysRemaining);
+        const dailyHours = Math.round((budget.studyHoursPerWeek / 7) * 10) / 10;
+        setDailyAvailableHours(dailyHours);
+
+        await loadRoadmapData(activeRoleId, budget.daysRemaining, dailyHours, undefined, hasCachedTasks);
+      } else {
+        // Newly signed up user with no roles: clean canvas!
+        setSelectedRoleId('');
+        setTasks([]);
+        setIsLoadingRoadmap(false);
+      }
     }).catch(err => {
       console.warn('Could not load real target roles:', err);
       setIsLoadingRoadmap(false);
     });
 
     return () => { isCancelled = true; };
-  }, [currentUserId]);
+  }, [currentUserId, userScope, authLoading]);
 
-  // Listen for assessment passing events and window focus
+  // Listen for assessment passing events, budget sync, and window focus
   useEffect(() => {
     const handleAssessmentPassed = (e: any) => {
       const passedSkill = e.detail?.skill;
@@ -270,18 +298,36 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
       }));
     };
 
+    const handleBudgetSync = (e: any) => {
+      const detail = e.detail;
+      if (detail && detail.roleId === selectedRoleId) {
+        if (typeof detail.daysRemaining === 'number') {
+          setDeadlineDays(detail.daysRemaining);
+        }
+        if (typeof detail.studyHoursPerWeek === 'number') {
+          const daily = Math.round((detail.studyHoursPerWeek / 7) * 10) / 10;
+          setDailyAvailableHours(daily);
+          loadRoadmapData(selectedRoleId, detail.daysRemaining, daily);
+        } else {
+          loadRoadmapData(selectedRoleId, detail.daysRemaining, dailyAvailableHours);
+        }
+      }
+    };
+
     const handleFocus = () => {
       loadRoadmapData(selectedRoleId, deadlineDays, dailyAvailableHours);
     };
 
     if (typeof window !== 'undefined') {
       window.addEventListener('skillbridge_assessment_passed', handleAssessmentPassed);
+      window.addEventListener('skillbridge_target_budget_updated', handleBudgetSync);
       window.addEventListener('focus', handleFocus);
     }
 
     return () => {
       if (typeof window !== 'undefined') {
         window.removeEventListener('skillbridge_assessment_passed', handleAssessmentPassed);
+        window.removeEventListener('skillbridge_target_budget_updated', handleBudgetSync);
         window.removeEventListener('focus', handleFocus);
       }
     };
@@ -291,7 +337,25 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
   const handleRoleChange = async (roleId: string) => {
     setSelectedRoleId(roleId);
     skillGapService.setSelectedRole(roleId);
-    await loadRoadmapData(roleId, deadlineDays, dailyAvailableHours);
+    const targetRole = roles.find(r => r.id === roleId);
+    const budget = skillGapService.getRoleBudget(roleId, targetRole?.days_remaining ?? 14, targetRole?.study_hours_per_week ?? 17.5);
+    setDeadlineDays(budget.daysRemaining);
+    const dailyHours = Math.round((budget.studyHoursPerWeek / 7) * 10) / 10;
+    setDailyAvailableHours(dailyHours);
+
+    // Check for cached tasks for this role
+    let hasRoleCache = false;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const cached = window.localStorage.getItem(`skillbridge_cached_roadmap_tasks_${userScope}_${roleId}`);
+        if (cached) {
+          setTasks(JSON.parse(cached));
+          hasRoleCache = true;
+        }
+      }
+    } catch {}
+
+    await loadRoadmapData(roleId, budget.daysRemaining, dailyHours, undefined, hasRoleCache);
   };
 
   // Launch Practical Assessment for a specific skill deliverable
@@ -310,7 +374,8 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
   const completedTasks = tasks.filter(t => t.status === 'completed');
   const remainingTasks = tasks.filter(t => t.status !== 'completed');
   const isAllTasksCompleted = tasks.length > 0 && remainingTasks.length === 0;
-  const remainingHours = isAllTasksCompleted ? 0 : remainingTasks.reduce((acc, t) => acc + (t.effort_hours_estimate || 0), 0);
+  const rawRemainingHours = isAllTasksCompleted ? 0 : remainingTasks.reduce((acc, t) => acc + (t.effort_hours_estimate || 0), 0);
+  const remainingHours = Math.round(rawRemainingHours * 10) / 10;
 
   // Horizon Countdown & Adaptive Capacity
   const horizonCountdown = calculateHorizonCountdown(selectedRoleId, deadlineDays, isAllTasksCompleted);
@@ -495,7 +560,37 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
         </div>
       </div>
 
+      {/* Empty State for Newly Registered Users with No Roadmap Tasks */}
+      {!isLoadingRoadmap && (tasks.length === 0 || roles.length === 0) && (
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0e131f] p-8 sm:p-12 text-center space-y-6 shadow-xs animate-fadeIn">
+          <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center mx-auto text-indigo-600 dark:text-indigo-400">
+            <Target className="w-8 h-8" />
+          </div>
+          <div className="max-w-md mx-auto space-y-2">
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+              No Learning Roadmap Yet
+            </h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+              Your personalized learning roadmap is generated dynamically from your target job description or career goal. Establish a target role to unlock actionable milestone deliverables.
+            </p>
+          </div>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('gaps')}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold hover:bg-slate-800 dark:hover:bg-slate-100 transition-all shadow-sm cursor-pointer"
+            >
+              <Target className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Go to Skill Gap & Set Target Role</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* DYNAMIC SCHEDULE & STUDY PACING DASHBOARD */}
+      {tasks.length > 0 && (
+      <>
       <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800/80 bg-white dark:bg-[#0e131f] p-5 shadow-xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-3 border-b border-slate-100 dark:border-slate-800/80">
           <div className="flex items-center gap-2.5">
@@ -513,33 +608,22 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            {/* Target Deadline Selector */}
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold">
-              <span className="text-[11px] text-slate-400 px-2 font-normal">
-                {isAllTasksCompleted ? 'Target (Completed):' : `Target (${effectiveRemainingDays}d left):`}
+            {/* Target Deadline Display (Configured flexibly in Skill Gap) */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <span className="text-[11px] text-slate-400 font-normal">Target Deadline:</span>
+              <span className="text-indigo-600 dark:text-cyan-400 font-bold">
+                {isAllTasksCompleted ? 'Completed 🎉' : `${effectiveRemainingDays}d left (${deadlineDays}d window)`}
               </span>
-              {[
-                { days: 7, label: '7 Days' },
-                { days: 14, label: '14 Days' },
-                { days: 21, label: '21 Days' },
-                { days: 30, label: '30 Days' },
-              ].map(opt => (
+              {setActiveTab && (
                 <button
-                  key={opt.days}
                   type="button"
-                  onClick={() => {
-                    updateDeadlineTimestamp(selectedRoleId, opt.days);
-                    setDeadlineDays(opt.days);
-                  }}
-                  className={`px-2.5 py-1 rounded-lg text-xs transition-all ${
-                    deadlineDays === opt.days
-                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                  }`}
+                  onClick={() => setActiveTab('gaps')}
+                  className="text-[11px] text-indigo-600 dark:text-cyan-400 hover:underline underline-offset-2 ml-1 cursor-pointer font-medium"
+                  title="Adjust timeframe using flexible slider in Skill Gap Matrix"
                 >
-                  {opt.label}
+                  Adjust in Skill Gap →
                 </button>
-              ))}
+              )}
             </div>
 
             {/* Recalculate Button */}
@@ -564,7 +648,7 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
             </span>
             <button
               type="button"
-              onClick={() => setDailyAvailableHours(adaptiveCapacity.recommendedDailyHours)}
+              onClick={() => handleUpdateDailyHours(adaptiveCapacity.recommendedDailyHours)}
               className="px-2.5 py-1 rounded-lg font-bold bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-100 hover:bg-amber-300 dark:hover:bg-amber-800 transition-colors self-start sm:self-auto cursor-pointer"
             >
               ⚡ Adapt Capacity ({adaptiveCapacity.recommendedDailyHours}h/day)
@@ -612,23 +696,12 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
 
           <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/60 p-3 space-y-1">
             <span className="text-[11px] text-slate-400 font-medium">Daily Study Time</span>
-            <div className="flex items-center justify-between">
-              <span className="text-xl font-bold text-slate-900 dark:text-white">{dailyAvailableHours}h</span>
-              <div className="flex items-center gap-1">
-                {[1.5, 2.5, 4.0].map(hrs => (
-                  <button
-                    key={hrs}
-                    type="button"
-                    onClick={() => setDailyAvailableHours(hrs)}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${dailyAvailableHours === hrs ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}
-                  >
-                    {hrs}h
-                  </button>
-                ))}
-              </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xl font-bold text-slate-900 dark:text-white">{dailyAvailableHours}</span>
+              <span className="text-xs text-slate-500">hrs / day</span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Your planned study time per day
+              Based on {Math.round(dailyAvailableHours * 7)}h/week planned study time
             </p>
           </div>
 
@@ -1017,6 +1090,8 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

@@ -40,7 +40,11 @@ export default function RegisterPage({ onSwitchToLogin, onClose, promptMessage }
         full_name: fullName.trim(),
       });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Registration failed. Please try again.');
+      const rawMsg = err instanceof Error ? err.message : 'Registration failed. Please try again.';
+      const cleanMsg = (rawMsg.includes('JSON') || rawMsg.includes('DOCTYPE') || rawMsg.includes('token') || rawMsg.includes('<'))
+        ? 'Authentication service is temporarily unavailable or reconnecting. Please try again in a few moments.'
+        : rawMsg;
+      setError(cleanMsg);
     } finally {
       setIsLoading(false);
     }

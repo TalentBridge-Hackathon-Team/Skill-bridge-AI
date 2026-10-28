@@ -3,9 +3,11 @@ import type { FeasibilityAssessment } from '../../types';
 
 interface FeasibilityBannerProps {
   feasibility: FeasibilityAssessment;
+  mode?: 'job_specific' | 'goal_based';
 }
 
-export default function FeasibilityBanner({ feasibility }: FeasibilityBannerProps) {
+export default function FeasibilityBanner({ feasibility, mode = 'job_specific' }: FeasibilityBannerProps) {
+  const isGoal = mode === 'goal_based';
   const getFeasibilityColor = (band: string) => {
     switch (band) {
       case 'Likely feasible':
@@ -37,11 +39,13 @@ export default function FeasibilityBanner({ feasibility }: FeasibilityBannerProp
           </div>
           <div>
             <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              Deadline Feasibility Assessment
+              {isGoal ? 'Milestone Horizon Feasibility' : 'Deadline Feasibility Assessment'}
             </h3>
             <span className="text-xs text-slate-500 dark:text-slate-400">
               {feasibility.estimated_plan_effort_hours === 0
-                ? 'All requirements and competencies demonstrated! Ready for application review.'
+                ? (isGoal ? 'All target career competencies demonstrated! Goal achieved. 🎉' : 'All requirements and competencies demonstrated! Ready for application review.')
+                : isGoal
+                ? `Validated against target ${feasibility.days_remaining}-day milestone horizon and planned learning pace`
                 : `Validated against target ${feasibility.days_remaining}-day window and planned study commitment`}
             </span>
           </div>
@@ -83,7 +87,7 @@ export default function FeasibilityBanner({ feasibility }: FeasibilityBannerProp
             {feasibility.available_hours} <span className="text-xs font-normal text-slate-400">hrs</span>
           </div>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            {feasibility.days_remaining} days × {feasibility.study_hours_per_day} hrs/day
+            {feasibility.days_remaining} {isGoal ? 'days horizon' : 'days until deadline'} × {feasibility.study_hours_per_day} hrs/day
           </p>
         </div>
 

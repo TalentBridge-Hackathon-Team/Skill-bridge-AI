@@ -5,7 +5,9 @@ import {
   Plus,
   RefreshCw,
   AlertCircle,
-  Sparkles
+  Sparkles,
+  Target,
+  FileText
 } from 'lucide-react';
 import RoleSelector from '../components/skill-gap/RoleSelector';
 import GapOverviewCards from '../components/skill-gap/GapOverviewCards';
@@ -21,6 +23,7 @@ import {
   type SkillGapAnalysisResponse
 } from '../services/skillGapService';
 import { calculateFeasibility, type TraceableMatchResult } from '../utils/skillGapCalculations';
+import { updateDeadlineTimestamp } from '../utils/horizonCapacityEngine';
 import type { TargetRoleOption, SkillEvidence } from '../types';
 
 interface SkillGapPageProps {
@@ -28,15 +31,18 @@ interface SkillGapPageProps {
 }
 
 export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
-  const { user } = useAuth();
-  const currentUserId = user ? String(user.id) : 'demo_user';
+  const { user, isLoading: authLoading } = useAuth();
+  // Only resolve IDs after auth has finished — never fall back to a shared demo ID
+  const currentUserId = !authLoading && user ? String(user.id) : null;
+  const userScope = currentUserId ?? 'guest';
 
   const [roles, setRoles] = useState<TargetRoleOption[]>([]);
-  const [selectedRoleId, setSelectedRoleId] = useState<string>('job_15f49367');
+  const [selectedRoleId, setSelectedRoleId] = useState<string>('');
   const [activeModeFilter, setActiveModeFilter] = useState<'all' | 'job_specific' | 'goal_based'>('all');
   const [analysis, setAnalysis] = useState<SkillGapAnalysisResponse | null>(null);
   const [daysRemaining, setDaysRemaining] = useState<number>(14);
   const [studyHoursPerWeek, setStudyHoursPerWeek] = useState<number>(14);
+  // Keep the loading spinner on until we know who the user is
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,11 +67,23 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
     customHours?: number,
     silent: boolean = false
   ) => {
+    if (!roleId || !currentUserId) {
+      if (!silent) setIsLoading(false);
+      return;
+    }
     if (!silent) setIsLoading(true);
     setError(null);
     try {
-      const data = await skillGapService.runAnalysis(roleId, customDays, customHours, currentUserId);
+      const data = await skillGapService.runAnalysis(roleId, customDays, customHours, currentUserId ?? undefined);
       setAnalysis(data);
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem(`skillbridge_cached_analysis_${userScope}`, JSON.stringify(data));
+          if (data.role?.id) {
+            window.localStorage.setItem(`skillbridge_cached_analysis_${userScope}_${data.role.id}`, JSON.stringify(data));
+          }
+        }
+      } catch {}
       if (data.role) {
         setSelectedRoleId(data.role.id);
         if (customDays !== undefined) setDaysRemaining(customDays);
@@ -80,24 +98,44 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
     } finally {
       if (!silent) setIsLoading(false);
     }
-  }, [currentUserId]);
+  }, [currentUserId, userScope]);
 
   // Load roles on mount and auto-select active role from Neon DB
   useEffect(() => {
+    // Wait for auth to finish — we need a real user ID before hitting the API
+    if (authLoading || !currentUserId) {
+      if (!authLoading) setIsLoading(false); // not logged in, stop spinner
+      return;
+    }
+
     let isCancelled = false;
 
-    skillGapService.getTargetRoles(currentUserId).then(loadedRoles => {
+    skillGapService.getTargetRoles(currentUserId ?? undefined).then(loadedRoles => {
       if (isCancelled) return;
-      setRoles(loadedRoles);
-      const activeId = skillGapService.getSelectedRoleId() || (loadedRoles && loadedRoles[0]?.id) || 'job_15f49367';
-      const targetRole = (loadedRoles || []).find(r => r.id === activeId) || (loadedRoles && loadedRoles[0]);
-      if (targetRole) {
-        setSelectedRoleId(targetRole.id);
-        setDaysRemaining(targetRole.days_remaining);
-        setStudyHoursPerWeek(targetRole.study_hours_per_week);
-        loadAnalysis(targetRole.id, targetRole.days_remaining, targetRole.study_hours_per_week);
+      setRoles(loadedRoles || []);
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem(`skillbridge_cached_target_roles_${userScope}`, JSON.stringify(loadedRoles || []));
+        }
+      } catch {}
+
+      if (loadedRoles && loadedRoles.length > 0) {
+        const activeId = skillGapService.getSelectedRoleId() || loadedRoles[0].id;
+        const targetRole = loadedRoles.find(r => r.id === activeId) || loadedRoles[0];
+        if (targetRole) {
+          setSelectedRoleId(targetRole.id);
+          skillGapService.setSelectedRole(targetRole.id);
+          const savedBudget = skillGapService.getRoleBudget(targetRole.id, targetRole.days_remaining, targetRole.study_hours_per_week);
+          setDaysRemaining(savedBudget.daysRemaining);
+          setStudyHoursPerWeek(savedBudget.studyHoursPerWeek);
+          const hasExistingCache = Boolean(analysis && (analysis.role?.id === targetRole.id));
+          loadAnalysis(targetRole.id, savedBudget.daysRemaining, savedBudget.studyHoursPerWeek, hasExistingCache);
+        }
       } else {
-        loadAnalysis('job_15f49367');
+        // Newly signed up user with no roles: clean slate!
+        setSelectedRoleId('');
+        setAnalysis(null);
+        setIsLoading(false);
       }
     }).catch(err => {
       if (isCancelled) return;
@@ -108,9 +146,9 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
     return () => {
       isCancelled = true;
     };
-  }, [loadAnalysis, currentUserId]);
+  }, [loadAnalysis, currentUserId, userScope, authLoading]);
 
-  // Synchronize when an assessment is passed
+  // Synchronize when an assessment is passed or deadline budget is updated in Roadmap
   useEffect(() => {
     const handlePassed = (e: any) => {
       const skill = e.detail?.skill;
@@ -118,12 +156,24 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
         loadAnalysis(selectedRoleId, daysRemaining, studyHoursPerWeek);
       }
     };
+
+    const handleBudgetSync = (e: any) => {
+      const detail = e.detail;
+      if (detail && detail.roleId === selectedRoleId) {
+        if (typeof detail.daysRemaining === 'number') setDaysRemaining(detail.daysRemaining);
+        if (typeof detail.studyHoursPerWeek === 'number') setStudyHoursPerWeek(detail.studyHoursPerWeek);
+        loadAnalysis(selectedRoleId, detail.daysRemaining, detail.studyHoursPerWeek, true);
+      }
+    };
+
     if (typeof window !== 'undefined') {
       window.addEventListener('skillbridge_assessment_passed', handlePassed);
+      window.addEventListener('skillbridge_target_budget_updated', handleBudgetSync);
     }
     return () => {
       if (typeof window !== 'undefined') {
         window.removeEventListener('skillbridge_assessment_passed', handlePassed);
+        window.removeEventListener('skillbridge_target_budget_updated', handleBudgetSync);
       }
     };
   }, [selectedRoleId, daysRemaining, studyHoursPerWeek, loadAnalysis]);
@@ -172,9 +222,23 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
     skillGapService.setSelectedRole(roleId);
     const targetRole = roles.find(r => r.id === roleId);
     if (targetRole) {
-      setDaysRemaining(targetRole.days_remaining);
-      setStudyHoursPerWeek(targetRole.study_hours_per_week);
-      loadAnalysis(roleId, targetRole.days_remaining, targetRole.study_hours_per_week);
+      const savedBudget = skillGapService.getRoleBudget(targetRole.id, targetRole.days_remaining, targetRole.study_hours_per_week);
+      setDaysRemaining(savedBudget.daysRemaining);
+      setStudyHoursPerWeek(savedBudget.studyHoursPerWeek);
+
+      // Check if we have cached analysis for this specific role
+      let hasRoleCache = false;
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          const roleCached = window.localStorage.getItem(`skillbridge_cached_analysis_${userScope}_${roleId}`);
+          if (roleCached) {
+            setAnalysis(JSON.parse(roleCached));
+            hasRoleCache = true;
+          }
+        }
+      } catch {}
+
+      loadAnalysis(roleId, savedBudget.daysRemaining, savedBudget.studyHoursPerWeek, hasRoleCache);
       showToast(`Switched target role to "${targetRole.role_title}"`);
     }
   };
@@ -184,6 +248,15 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
   const handleUpdateBudget = (newDays: number, newHours: number) => {
     setDaysRemaining(newDays);
     setStudyHoursPerWeek(newHours);
+    updateDeadlineTimestamp(selectedRoleId, newDays);
+    skillGapService.setRoleBudget(selectedRoleId, newDays, newHours);
+
+    // Broadcast budget synchronization event to RoadmapPage and other active tabs
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('skillbridge_target_budget_updated', {
+        detail: { roleId: selectedRoleId, daysRemaining: newDays, studyHoursPerWeek: newHours }
+      }));
+    }
 
     // Optimistically update feasibility metrics immediately for silky-smooth slider UX
     if (analysis?.feasibility && analysis.results) {
@@ -417,14 +490,51 @@ export default function SkillGapPage({ setActiveTab }: SkillGapPageProps) {
         </div>
       )}
 
+      {/* Empty State for Newly Registered Users with No Target Roles */}
+      {!isLoading && roles.length === 0 && (
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0e131f] p-8 sm:p-12 text-center space-y-6 shadow-xs animate-fadeIn">
+          <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center mx-auto text-indigo-600 dark:text-indigo-400">
+            <Sparkles className="w-8 h-8" />
+          </div>
+          <div className="max-w-md mx-auto space-y-2">
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+              Welcome to SkillBridge AI!
+            </h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+              Start your career preparation from a clean slate. Choose how you'd like to set your target competencies:
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg mx-auto pt-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('analysis')}
+              className="flex flex-col items-center justify-center p-5 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-500 dark:hover:border-indigo-500 bg-slate-50 dark:bg-slate-900/50 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30 transition-all text-center space-y-2 cursor-pointer group"
+            >
+              <FileText className="w-6 h-6 text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
+              <strong className="text-xs font-bold text-slate-900 dark:text-white">Mode A: Match a Job Description</strong>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">Paste or upload a real job posting from LinkedIn or company careers site.</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsCustomGoalModalOpen(true)}
+              className="flex flex-col items-center justify-center p-5 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-500 dark:hover:border-indigo-500 bg-slate-50 dark:bg-slate-900/50 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30 transition-all text-center space-y-2 cursor-pointer group"
+            >
+              <Target className="w-6 h-6 text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
+              <strong className="text-xs font-bold text-slate-900 dark:text-white">Mode B: Set a Career Milestone Goal</strong>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">Define a target title and set your study timeline and weekly commitment.</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Analysis Body */}
       {!isLoading && analysis && (
         <div className="space-y-6">
           {/* Overview Metrics Cards & Score */}
           <GapOverviewCards summary={analysis.summary} />
 
-          {/* Deadline Feasibility Assessment Card */}
-          <FeasibilityBanner feasibility={analysis.feasibility} />
+          {/* Deadline / Milestone Horizon Feasibility Assessment Card */}
+          <FeasibilityBanner feasibility={analysis.feasibility} mode={analysis.role.mode} />
 
           {/* Traceable Skills Comparison Table with Filter/Sort */}
           <SkillComparisonTable

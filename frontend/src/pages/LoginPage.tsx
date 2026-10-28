@@ -27,7 +27,11 @@ export default function LoginPage({ onSwitchToRegister, onClose, promptMessage }
       await login({ username: username.trim(), password });
       // AuthContext sets the user — App.tsx will re-render and show the main UI
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Login failed. Please try again.');
+      const rawMsg = err instanceof Error ? err.message : 'Login failed. Please try again.';
+      const cleanMsg = (rawMsg.includes('JSON') || rawMsg.includes('DOCTYPE') || rawMsg.includes('token') || rawMsg.includes('<'))
+        ? 'Authentication service is temporarily unavailable or reconnecting. Please try again in a few moments.'
+        : rawMsg;
+      setError(cleanMsg);
     } finally {
       setIsLoading(false);
     }

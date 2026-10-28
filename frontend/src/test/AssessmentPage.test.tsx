@@ -100,7 +100,7 @@ describe('AssessmentPage Component', () => {
     render(<AssessmentPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('PostgreSQL')).toBeInTheDocument();
+      expect(screen.getAllByText('PostgreSQL')[0]).toBeInTheDocument();
     });
 
     const evalButton = screen.getByRole('button', { name: /Evaluate PostgreSQL Deliverable/i });
@@ -156,7 +156,7 @@ describe('AssessmentPage Component', () => {
     render(<AssessmentPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('PostgreSQL')).toBeInTheDocument();
+      expect(screen.getAllByText('PostgreSQL')[0]).toBeInTheDocument();
     });
 
     const evalButton = screen.getByRole('button', { name: /Evaluate PostgreSQL Deliverable/i });
@@ -221,7 +221,7 @@ describe('AssessmentPage Component', () => {
     render(<AssessmentPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('PostgreSQL')).toBeInTheDocument();
+      expect(screen.getAllByText('PostgreSQL')[0]).toBeInTheDocument();
     });
 
     const evalButton = screen.getByRole('button', { name: /Evaluate PostgreSQL Deliverable/i });
@@ -265,7 +265,7 @@ describe('AssessmentPage Component', () => {
     render(<AssessmentPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('PostgreSQL')).toBeInTheDocument();
+      expect(screen.getAllByText('PostgreSQL')[0]).toBeInTheDocument();
     });
 
     const evalButton = screen.getByRole('button', { name: /Evaluate PostgreSQL Deliverable/i });

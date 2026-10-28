@@ -27,24 +27,33 @@ export interface AdaptiveCapacityState {
 }
 
 /**
- * Get or initialize persistent deadline timestamp for a given goal/role
+ * Get or initialize persistent deadline timestamp for a given goal/role.
+ * Recomputes dynamically when initialDays changes (e.g., from 14 to 16 or 30 days).
  */
 export function getOrCreateDeadlineTimestamp(roleId: string, initialDays: number): number {
-  const storageKey = `skillbridge_deadline_target_${roleId}`;
+  const targetKey = `skillbridge_deadline_target_${roleId}`;
+  const daysKey = `skillbridge_deadline_days_${roleId}`;
   const now = Date.now();
 
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
-      const stored = window.localStorage.getItem(storageKey);
-      if (stored) {
-        const parsed = parseInt(stored, 10);
-        if (!isNaN(parsed) && parsed > 0) {
-          return parsed;
+      const storedDays = window.localStorage.getItem(daysKey);
+      const storedTarget = window.localStorage.getItem(targetKey);
+
+      if (storedTarget) {
+        const parsedTarget = parseInt(storedTarget, 10);
+        const parsedDays = storedDays !== null ? parseInt(storedDays, 10) : initialDays;
+
+        // If the configured base days have not changed, retain the target timestamp (even if elapsed/expired)
+        if (parsedDays === initialDays && !isNaN(parsedTarget)) {
+          return parsedTarget;
         }
       }
-      // If not stored, initialize target date: now + initialDays in ms
+
+      // If initialDays changed (e.g. 14 -> 16) or no target exists, sync to new deadline
       const newTarget = now + initialDays * 24 * 60 * 60 * 1000;
-      window.localStorage.setItem(storageKey, String(newTarget));
+      window.localStorage.setItem(targetKey, String(newTarget));
+      window.localStorage.setItem(daysKey, String(initialDays));
       return newTarget;
     }
   } catch {}
@@ -53,15 +62,17 @@ export function getOrCreateDeadlineTimestamp(roleId: string, initialDays: number
 }
 
 /**
- * Resets or updates the deadline timestamp when user manually modifies the days slider
+ * Resets or updates the deadline timestamp when user manually modifies the days
  */
 export function updateDeadlineTimestamp(roleId: string, newDays: number): number {
-  const storageKey = `skillbridge_deadline_target_${roleId}`;
+  const targetKey = `skillbridge_deadline_target_${roleId}`;
+  const daysKey = `skillbridge_deadline_days_${roleId}`;
   const newTarget = Date.now() + newDays * 24 * 60 * 60 * 1000;
 
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem(storageKey, String(newTarget));
+      window.localStorage.setItem(targetKey, String(newTarget));
+      window.localStorage.setItem(daysKey, String(newDays));
     }
   } catch {}
 

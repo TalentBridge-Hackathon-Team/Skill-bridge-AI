@@ -56,7 +56,9 @@ class RegisterView(APIView):
 
         user = serializer.save()
 
-        # Auto-provision a SkillBridge UserProfile so other modules work immediately
+        # Auto-provision an empty SkillBridge UserProfile so other modules
+        # can find it immediately — but do NOT assign any role or skills.
+        # The user fills those in themselves via the Profile page.
         try:
             from apps.profiles.models import UserProfile  # noqa: PLC0415
 
@@ -65,8 +67,8 @@ class RegisterView(APIView):
                 user_id=str(user.id),
                 defaults={
                     "name": full_name,
-                    "target_role": "Junior Backend Developer",
-                    "experience_level": "Entry Level",
+                    "target_role": "",
+                    "experience_level": "",
                     "skills": [],
                 },
             )
