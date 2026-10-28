@@ -22,6 +22,8 @@ except ImportError:
     pass
 
 SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY environment variable is not set. Aborting startup.")
 
 DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 'yes')
 
@@ -86,7 +88,11 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'skillbridge_backend.wsgi.application'
 
-tmpPostgres = urlparse(os.getenv("DATABASE_URL"))
+_db_url = os.getenv("DATABASE_URL")
+if not _db_url:
+    raise RuntimeError("DATABASE_URL environment variable is not set. Aborting startup.")
+
+tmpPostgres = urlparse(_db_url)
 _db_options = dict(parse_qsl(tmpPostgres.query))
 _db_options.setdefault('connect_timeout', 10)
 
@@ -97,7 +103,7 @@ DATABASES = {
         'USER': tmpPostgres.username,
         'PASSWORD': tmpPostgres.password,
         'HOST': tmpPostgres.hostname,
-        'PORT': 5432,
+        'PORT': tmpPostgres.port or 5432,
         'OPTIONS': _db_options,
         'CONN_MAX_AGE': 600,
         'CONN_HEALTH_CHECKS': True,

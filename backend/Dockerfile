@@ -22,9 +22,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy project source
 COPY . /app/
 
-# Collect static files for whitenoise to serve
-RUN python manage.py collectstatic --noinput
-
 EXPOSE 8000
 
-CMD ["sh", "-c", "python manage.py migrate --noinput && gunicorn skillbridge_backend.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 4 --timeout 120 --access-logfile - --error-logfile -"]
+CMD ["sh", "-c", "python manage.py collectstatic --noinput && python manage.py migrate --noinput && gunicorn skillbridge_backend.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 4 --timeout 120 --access-logfile - --error-logfile -"]
