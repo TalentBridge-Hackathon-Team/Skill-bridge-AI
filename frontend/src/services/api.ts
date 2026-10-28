@@ -18,7 +18,7 @@ import type {
   SkillProfileSummary,
 } from '../types';
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api';
 
 /** Returns the stored JWT access token, or null if the user is not logged in. */
 function getStoredToken(): string | null {

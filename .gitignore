@@ -7,6 +7,7 @@ db.sqlite3
 /backend/venv/
 .env
 .env.local
+.env.prod
 .env.*.local
 
 # Node / React

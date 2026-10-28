@@ -21,7 +21,7 @@ import { skillGapService } from '../services/skillGapService';
 const ACCESS_KEY = 'sb_access';
 const REFRESH_KEY = 'sb_refresh';
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '/api';
 
 // ── Context shape ─────────────────────────────────────────────────────────────
 interface AuthContextType {

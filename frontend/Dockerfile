@@ -1,14 +1,32 @@
+# SkillBridge AI — React/Vite Frontend Dockerfile (production, multi-stage)
 
-FROM node:22-alpine
+# ── Stage 1: build static assets ─────────────────────────────────────────────
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
+# Install deps first (cached layer — only re-runs when package files change)
 COPY package.json package-lock.json* ./
+RUN npm ci
 
-RUN npm install
+# Receive the backend API URL as a build argument so Vite can bake it in.
+# Pass it when building: --build-arg VITE_API_BASE_URL=https://api.yourdomain.com/api
+ARG VITE_API_BASE_URL
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 COPY . .
+RUN npm run build
 
-EXPOSE 5173
+# ── Stage 2: serve via nginx ──────────────────────────────────────────────────
+FROM nginx:1.27-alpine
 
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+# Copy the built bundle
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Copy nginx config template (uses $BACKEND_HOST env var for API proxy)
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+
+EXPOSE 80
+
+# nginx docker image automatically runs envsubst on /etc/nginx/templates/*.template
+CMD ["nginx", "-g", "daemon off;"]

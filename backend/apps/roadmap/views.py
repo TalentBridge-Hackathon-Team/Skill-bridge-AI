@@ -143,6 +143,9 @@ class RoadmapListView(APIView):
     def get(self, request):
         auth_id = str(request.user.id) if (getattr(request, "user", None) and request.user.is_authenticated) else None
         effective_uid = auth_id or request.query_params.get("user_id")
+        user_id = effective_uid or "usr_demo_001"
+        deadline_days = int(request.query_params.get("deadline_days", 14))
+        daily_available = float(request.query_params.get("daily_available_hours", 2.5))
 
         if not effective_uid or effective_uid in ("usr_demo_001", "demo_user"):
             user_candidates = ["usr_demo_001", "demo_user"]

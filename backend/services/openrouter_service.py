@@ -358,6 +358,9 @@ class OpenRouterService:
             h["Authorization"] = f"Bearer {self.api_key}"
         return h
 
+    def _get_headers(self) -> Dict[str, str]:
+        return self._headers()
+
     # ── Text generation ───────────────────────────────────────────────────────
 
     def generate_text(

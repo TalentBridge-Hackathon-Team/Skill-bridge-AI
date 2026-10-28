@@ -23,9 +23,12 @@ except ImportError:
 
 SECRET_KEY = os.getenv('SECRET_KEY')
 
-DEBUG = os.getenv('DEBUG', 'True').lower() in ('true', '1', 'yes')
+DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 'yes')
 
 ALLOWED_HOSTS = [host.strip() for host in os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if host.strip()]
+
+# Required when Django is behind an HTTPS reverse proxy (Render, Railway, Vercel, etc.)
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()]
 APPEND_SLASH = False
 
 
@@ -54,6 +57,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -116,6 +120,7 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -154,15 +159,32 @@ SIMPLE_JWT = {
     'USER_ID_CLAIM': 'user_id',
 }
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = DEBUG  # open only in local dev; production uses the explicit list below
+CORS_ALLOWED_ORIGINS = [o.strip() for o in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if o.strip()]
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv('CSRF_TRUSTED_ORIGINS', os.getenv('CORS_ALLOWED_ORIGINS', '')).split(',') if o.strip()]
 CORS_ALLOW_CREDENTIALS = True
+
+# Production reverse-proxy & SSL headers
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    if os.getenv('SECURE_SSL_REDIRECT', 'False').lower() in ('true', '1', 'yes'):
+        SECURE_SSL_REDIRECT = True
+    if os.getenv('ENABLE_HSTS', 'False').lower() in ('true', '1', 'yes'):
+        SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '31536000'))
+        SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+        SECURE_HSTS_PRELOAD = True
 
 AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID', 'test')
 AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', 'test')
-AWS_ENDPOINT_URL = os.getenv('AWS_ENDPOINT_URL', 'http://localhost:4566')
+_raw_endpoint = os.getenv('AWS_ENDPOINT_URL', '').strip()
+AWS_ENDPOINT_URL = _raw_endpoint if _raw_endpoint else ('http://localhost:4566' if DEBUG else None)
 AWS_S3_BUCKET_NAME = os.getenv('AWS_S3_BUCKET_NAME', 'skillbridge-resumes')
-AWS_SQS_RESUME_QUEUE_URL = os.getenv('AWS_SQS_RESUME_QUEUE_URL', 'http://localhost:4566/000000000000/skillbridge-resume-processing')
+AWS_SQS_RESUME_QUEUE_URL = os.getenv('AWS_SQS_RESUME_QUEUE_URL', '') or (
+    'http://localhost:4566/000000000000/skillbridge-resume-processing' if DEBUG else ''
+)
 
 # OpenRouter LLM & Embeddings Configuration
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')

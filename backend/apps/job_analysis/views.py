@@ -90,8 +90,12 @@ class JobAnalysisListCreateView(APIView):
     GET  /api/job-analyses/   List all analyses for the authenticated user
     POST /api/job-analyses/   Create analysis + extract requirements
     """
-    permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_permissions(self):
+        if self.request.query_params.get("user_id") or self.request.data.get("user_id"):
+            return [AllowAny()]
+        return [IsAuthenticated()]
 
     def get(self, request):
         query_user = request.query_params.get("user_id")
@@ -321,7 +325,10 @@ class GoalListCreateView(APIView):
     GET  /api/goals/   List goals for the authenticated user
     POST /api/goals/   Create goal + map to best-matching skill profile
     """
-    permission_classes = [AllowAny]
+    def get_permissions(self):
+        if self.request.query_params.get("user_id") or self.request.data.get("user_id"):
+            return [AllowAny()]
+        return [IsAuthenticated()]
 
     def get(self, request):
         user_id = _get_user_id(request)
