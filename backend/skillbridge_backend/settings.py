@@ -175,9 +175,9 @@ SIMPLE_JWT = {
 }
 
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # open only in local dev; production uses the explicit list below
-CORS_ALLOWED_ORIGINS = [o.strip() for o in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if o.strip()]
+CORS_ALLOWED_ORIGINS = [o.strip().rstrip('/') for o in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if o.strip()]
 raw_csrf = os.getenv('CSRF_TRUSTED_ORIGINS', os.getenv('CORS_ALLOWED_ORIGINS', ''))
-CSRF_TRUSTED_ORIGINS = [o.strip() for o in raw_csrf.split(',') if o.strip()]
+CSRF_TRUSTED_ORIGINS = [o.strip().rstrip('/') for o in raw_csrf.split(',') if o.strip()]
 if 'https://*.onrender.com' not in CSRF_TRUSTED_ORIGINS:
     CSRF_TRUSTED_ORIGINS.append('https://*.onrender.com')
 if render_host:
