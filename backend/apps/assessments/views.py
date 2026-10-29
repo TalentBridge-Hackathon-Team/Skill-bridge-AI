@@ -521,8 +521,9 @@ class MicroLessonChatView(APIView):
                     struggle_topic = self._resolve_struggle_topic(skill_name, message)
                     active_model = llm_res.get("model") or "gemini-3-flash-preview"
                     return reply_body, socratic_q, concept_anim, struggle_topic, "live_ai", active_model
-        except Exception:
-            pass
+        except Exception as exc:
+            import logging as _log
+            _log.getLogger(__name__).error(f"[MicroLessonChat] LLM generation error: {exc}", exc_info=True)
 
         # 4. Rich, Skill-Aware Fallback Engine (visibly differentiates Level and Style)
         fb_reply, fb_socratic, fb_anim, fb_topic = self._generate_rich_fallback(

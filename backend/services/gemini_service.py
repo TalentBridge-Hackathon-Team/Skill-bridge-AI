@@ -23,9 +23,9 @@ class GeminiService:
             settings, "GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", "")
         )
         raw_model = getattr(
-            settings, "GEMINI_MODEL", os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+            settings, "GEMINI_MODEL", os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
         )
-        self.model = raw_model.strip('"\'') if raw_model else "gemini-3-flash-preview"
+        self.model = raw_model.strip('"\'') if raw_model else "gemini-2.0-flash"
         self.base_url = "https://generativelanguage.googleapis.com/v1beta/models"
 
     def is_configured(self) -> bool:
@@ -82,14 +82,11 @@ class GeminiService:
                 normalized_contents[-1]["parts"].extend(c["parts"])
 
         candidate_models = [
-            "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
-            "gemini-flash-lite-latest",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash",
-            self.model or "gemini-3.5-flash-lite",
-            "gemma-4-26b-a4b-it",
             "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite-preview",
+            "gemma-4-26b-a4b-it",
+            self.model or "gemini-3.1-flash-lite",
         ]
         seen = set()
         models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
@@ -97,7 +94,7 @@ class GeminiService:
         last_error = "All Gemini models failed"
 
         for cand_model in models_to_try:
-            url = f"{self.base_url}/{cand_model}:generateContent"
+            url = f"{self.base_url}/{cand_model}:generateContent?key={self.api_key}"
             payload: Dict[str, Any] = {
                 "contents": normalized_contents,
                 "generationConfig": {
@@ -114,7 +111,10 @@ class GeminiService:
                 response = requests.post(
                     url,
                     json=payload,
-                    headers={"Content-Type": "application/json"},
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": self.api_key
+                    },
                     timeout=25
                 )
                 if response.status_code == 200:
@@ -189,13 +189,11 @@ class GeminiService:
         )
 
         candidate_models = [
-            "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
-            "gemini-flash-lite-latest",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash",
-            self.model or "gemini-3.5-flash-lite",
             "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite-preview",
+            "gemma-4-26b-a4b-it",
+            self.model or "gemini-3.1-flash-lite",
         ]
         seen = set()
         models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
