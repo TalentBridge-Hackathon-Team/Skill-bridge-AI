@@ -97,7 +97,7 @@ class GeminiService:
         last_error = "All Gemini models failed"
 
         for cand_model in models_to_try:
-            url = f"{self.base_url}/{cand_model}:generateContent?key={self.api_key}"
+            url = f"{self.base_url}/{cand_model}:generateContent"
             payload: Dict[str, Any] = {
                 "contents": normalized_contents,
                 "generationConfig": {
