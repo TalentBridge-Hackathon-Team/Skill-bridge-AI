@@ -181,6 +181,7 @@ export default function SkillDetailModal({
           url.searchParams.set('role', targetRoleId);
         }
         window.history.replaceState({}, '', url.toString());
+        window.dispatchEvent(new CustomEvent('skillbridge_navigate_assessment'));
       } catch {}
     }
     onClose();
@@ -783,6 +784,7 @@ export default function SkillDetailModal({
                             url.searchParams.set('role', targetRoleId);
                           }
                           window.history.replaceState({}, '', url.toString());
+                          window.dispatchEvent(new CustomEvent('skillbridge_navigate_assessment'));
                         } catch {}
                       }
                       onClose();

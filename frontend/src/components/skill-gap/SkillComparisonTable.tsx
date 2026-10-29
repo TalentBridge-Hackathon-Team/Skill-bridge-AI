@@ -571,6 +571,8 @@ export default function SkillComparisonTable({
                           url.searchParams.set('skill', item.skill_name);
                           if (targetRoleId) url.searchParams.set('role', targetRoleId);
                           window.history.replaceState({}, '', url.toString());
+                          // Notify AssessmentPage to re-read URL params
+                          window.dispatchEvent(new CustomEvent('skillbridge_navigate_assessment'));
                         }
                         if (targetRoleId) skillGapService.setSelectedRole(targetRoleId);
                         onNavigateTab('assessment');

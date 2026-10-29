@@ -158,10 +158,9 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
   const [showCompletedList, setShowCompletedList] = useState<boolean>(false);
 
   const resolveEndpoint = (path: string) => {
-    if (typeof window !== 'undefined' && window.location && window.location.origin && !window.location.origin.includes('null')) {
-      return `${window.location.origin}${path}`;
-    }
-    return `http://localhost:8000${path}`;
+    const base = (import.meta as any).env?.VITE_API_BASE_URL || '/api';
+    const cleanBase = base.replace(/\/api\/?$/, '');
+    return `${cleanBase}${path}`;
   };
 
   const loadRoadmapData = async (roleIdToLoad: string, days: number, dailyHours: number, extraPassed?: Set<string>, silent: boolean = false) => {
@@ -360,12 +359,15 @@ export default function RoadmapPage({ setActiveTab }: RoadmapPageProps) {
 
   // Launch Practical Assessment for a specific skill deliverable
   const handleLaunchAssessment = (skillName?: string) => {
-    const targetSkill = skillName || 'PostgreSQL';
+    if (!skillName) return;
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href);
       url.searchParams.set('tab', 'assessment');
-      url.searchParams.set('skill', targetSkill);
+      url.searchParams.set('skill', skillName);
+      if (selectedRoleId) url.searchParams.set('role', selectedRoleId);
       window.history.replaceState({}, '', url.toString());
+      // Fire event so AssessmentPage re-reads the URL params even if already mounted
+      window.dispatchEvent(new CustomEvent('skillbridge_navigate_assessment'));
     }
     setActiveTab('assessment');
   };

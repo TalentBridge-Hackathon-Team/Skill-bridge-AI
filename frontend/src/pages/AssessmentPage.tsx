@@ -1052,6 +1052,24 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
   // Never fall back to a shared demo ID — wait for auth to resolve first
   const currentUserId = !authLoading && user?.id ? String(user.id) : null;
 
+  // Track URL search params as state so the data-loading useEffect re-runs
+  // when another tab navigates here with ?skill=X&role=Y in the URL.
+  const [locationSearch, setLocationSearch] = useState<string>(
+    typeof window !== 'undefined' ? window.location.search : ''
+  );
+  useEffect(() => {
+    const handleNavigate = () => {
+      setLocationSearch(window.location.search);
+    };
+    window.addEventListener('skillbridge_navigate_assessment', handleNavigate);
+    // Also catch browser back/forward
+    window.addEventListener('popstate', handleNavigate);
+    return () => {
+      window.removeEventListener('skillbridge_navigate_assessment', handleNavigate);
+      window.removeEventListener('popstate', handleNavigate);
+    };
+  }, []);
+
   // Target Role & Skill Gap State
   const [roles, setRoles] = useState<TargetRoleOption[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<string>('');
@@ -1257,18 +1275,18 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
   };
 
   const resolveEndpoint = (path: string) => {
-    if (typeof window !== 'undefined' && window.location) {
-      const host = window.location.hostname || 'localhost';
-      return `http://${host}:8000${path}`;
-    }
-    return `http://localhost:8000${path}`;
+    // Use the configured API base URL (works in both dev and production)
+    const base = (import.meta as any).env?.VITE_API_BASE_URL || '/api';
+    // Strip trailing /api from base and leading /api from path to avoid double-prefix
+    const cleanBase = base.replace(/\/api\/?$/, '');
+    return `${cleanBase}${path}`;
   };
 
   // Check if current skill gap is already Demonstrated
   // Helper to load persisted micro-lesson progress from dedicated Neon PostgreSQL database
   const loadSkillProgress = async (skill: string) => {
     try {
-      const res = await fetch(resolveEndpoint(`/api/assessments/micro-lesson/progress/?user_id=usr_demo_001&skill_name=${encodeURIComponent(skill)}`));
+      const res = await fetch(resolveEndpoint(`/api/assessments/micro-lesson/progress/?user_id=${encodeURIComponent(currentUserId || 'guest')}&skill_name=${encodeURIComponent(skill)}`));
       if (res.ok) {
         return await res.json();
       }
@@ -1312,7 +1330,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: 'usr_demo_001',
+          user_id: currentUserId || 'guest',
           skill_name: skill,
           unlocked_hint_level: updates.unlockedHintLevel ?? unlockedHintLevel,
           chat_history: updates.chatHistory ?? mentorChatHistory,
@@ -1786,40 +1804,29 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
     setIsMentorLoading(true);
 
     try {
-      // Try direct backend 8000 first, then fallback to relative proxy
-      const host = (typeof window !== 'undefined' && window.location && window.location.hostname) || 'localhost';
-      const candidateUrls = [
-        `http://${host}:8000/api/assessments/micro-lesson/chat/`,
-        'http://127.0.0.1:8000/api/assessments/micro-lesson/chat/',
-        'http://localhost:8000/api/assessments/micro-lesson/chat/',
-        '/api/assessments/micro-lesson/chat/'
-      ];
+      // Use the configured API base URL — works in both dev and production
+      const base = (import.meta as any).env?.VITE_API_BASE_URL || '/api';
+      const cleanBase = base.replace(/\/api\/?$/, '');
+      const chatUrl = `${cleanBase}/api/assessments/micro-lesson/chat/`;
 
-      let res: Response | null = null;
-      for (const targetUrl of candidateUrls) {
-        try {
-          const attempt = await fetch(targetUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              user_id: 'usr_demo_001',
-              skill_name: activeSkillGap,
-              message: q,
-              learning_preference: learningPreference,
-              experience_level: experienceLevel,
-              chat_history: optimisticHistory
-            })
-          });
-          if (attempt && attempt.ok) {
-            res = attempt;
-            break;
-          }
-        } catch {
-          // Try next endpoint candidate
-        }
-      }
+      const token = localStorage.getItem('sb_access');
+      const res = await fetch(chatUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          user_id: currentUserId || 'guest',
+          skill_name: activeSkillGap,
+          message: q,
+          learning_preference: learningPreference,
+          experience_level: experienceLevel,
+          chat_history: optimisticHistory
+        })
+      });
 
-      if (res && res.ok) {
+      if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.chat_history) && data.chat_history.length > 0) {
           setMentorChatHistory(data.chat_history);
@@ -1837,6 +1844,8 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
         }
         setIsMentorLoading(false);
         return;
+      } else {
+        console.warn(`Mentor chat API returned ${res.status}:`, await res.text().catch(() => ''));
       }
     } catch (err) {
       console.warn('Backend Socratic mentor call failed, using client resilient fallback:', err);
@@ -2221,7 +2230,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
     } catch {}
 
     // 2. Fetch latest saved submission from backend
-    fetch(resolveEndpoint(`/api/assessments/asm_${slug}/submissions/?user_id=usr_demo_001&target_skill=${encodeURIComponent(activeSkillGap)}`))
+    fetch(resolveEndpoint(`/api/assessments/asm_${slug}/submissions/?user_id=${encodeURIComponent(currentUserId || 'guest')}&target_skill=${encodeURIComponent(activeSkillGap)}`))
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data?.latest_submission?.submission_data) {
@@ -2295,7 +2304,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
       setEvaluationResult({
         submission_id: `sub_verified_${activeSkillGap.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
         task_id: `asm_${activeSkillGap.toLowerCase().replace(/[^a-z0-9]/g, '_')}`,
-        user_id: 'usr_demo_001',
+        user_id: currentUserId || 'guest',
         submission_type: 'code',
         score: 10,
         max_score: 10,
@@ -2442,7 +2451,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
     });
 
     return () => { isCancelled = true; };
-  }, [currentUserId, authLoading]);
+  }, [currentUserId, authLoading, locationSearch]);
 
   // Handle switching target role
   const handleRoleChange = async (roleId: string) => {
@@ -2555,12 +2564,12 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: 'demo_user',
+          user_id: currentUserId || 'guest',
           submission_type: submissionMode,
           submission: payloadData,
           target_skill: activeSkillGap,
           learning_preference: learningPreference,
-          target_role: roles.find(r => r.id === selectedRoleId)?.role_title || 'Junior Backend Developer',
+          target_role: roles.find(r => r.id === selectedRoleId)?.role_title || '',
         }),
       });
 
@@ -2615,7 +2624,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
       const data: EvaluationResult = {
         submission_id: `sub_${Math.random().toString(36).substring(2, 9)}`,
         task_id: `asm_${activeSkillGap.toLowerCase()}`,
-        user_id: 'usr_demo_001',
+        user_id: currentUserId || 'guest',
         submission_type: submissionMode,
         score,
         max_score: 10,
@@ -3849,7 +3858,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
               Career Gap Integration
             </span>
             <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-              Target Role: {roles.find(r => r.id === selectedRoleId)?.role_title || 'Junior Backend Developer'}
+              Target Role: {roles.find(r => r.id === selectedRoleId)?.role_title || selectedRoleId || 'Your Target Role'}
             </h4>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {skillGaps.filter(g => g.status === 'Demonstrated').length} of {skillGaps.length} skills demonstrated.

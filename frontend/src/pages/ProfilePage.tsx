@@ -127,6 +127,26 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
   const [projectErrors, setProjectErrors] = useState<Record<string, string>>({});
   const [projectSkillInput, setProjectSkillInput] = useState('');
 
+  // Evidence form state
+  const [showEvidenceForm, setShowEvidenceForm] = useState(false);
+  const [newEvidence, setNewEvidence] = useState({ skill_name: '', title: '', reference: '', evidence_type: 'self_reported' });
+  const [evidenceSaving, setEvidenceSaving] = useState(false);
+
+  const handleAddEvidence = async () => {
+    if (!newEvidence.skill_name.trim() || !newEvidence.title.trim()) return;
+    setEvidenceSaving(true);
+    try {
+      const created = await api.addEvidence({ ...newEvidence, user_id: currentUserId });
+      if (created) setEvidenceList(prev => [...prev, created]);
+      setNewEvidence({ skill_name: '', title: '', reference: '', evidence_type: 'self_reported' });
+      setShowEvidenceForm(false);
+    } catch {
+      // keep form open so user can retry
+    } finally {
+      setEvidenceSaving(false);
+    }
+  };
+
   // Load from backend on mount or when user changes
   useEffect(() => {
     if (authLoading || !user) return; // wait for auth before fetching
@@ -658,12 +678,56 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
               </div>
               <button
                 type="button"
-                onClick={() => api.addEvidence({ skill_name: '', title: '', evidence_type: 'self_reported', user_id: profile.user_id })}
+                onClick={() => setShowEvidenceForm(v => !v)}
                 className="flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 <Plus className="w-3.5 h-3.5" /> Add Evidence
               </button>
             </div>
+
+            {/* Inline evidence entry form */}
+            {showEvidenceForm && (
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 p-4 space-y-3">
+                <input
+                  type="text"
+                  placeholder="Skill name *"
+                  value={newEvidence.skill_name}
+                  onChange={e => setNewEvidence(p => ({ ...p, skill_name: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+                <input
+                  type="text"
+                  placeholder="Title / project name *"
+                  value={newEvidence.title}
+                  onChange={e => setNewEvidence(p => ({ ...p, title: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+                <input
+                  type="url"
+                  placeholder="Reference URL (optional)"
+                  value={newEvidence.reference}
+                  onChange={e => setNewEvidence(p => ({ ...p, reference: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAddEvidence}
+                    disabled={evidenceSaving || !newEvidence.skill_name.trim() || !newEvidence.title.trim()}
+                    className="px-4 py-1.5 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold disabled:opacity-50 hover:bg-slate-700 dark:hover:bg-slate-100 transition-colors"
+                  >
+                    {evidenceSaving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowEvidenceForm(false); setNewEvidence({ skill_name: '', title: '', reference: '', evidence_type: 'self_reported' }); }}
+                    className="px-4 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               {evidenceList.length === 0 && (
