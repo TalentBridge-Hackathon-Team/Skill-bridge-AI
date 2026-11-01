@@ -673,13 +673,13 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      className="flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
+                      className="flex-1 min-w-0 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none"
                       placeholder="Type a skill and press Add"
                       value={projectSkillInput}
                       onChange={(e) => setProjectSkillInput(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addProjectSkill(); } }}
                     />
-                    <button type="button" onClick={addProjectSkill} className="rounded-lg bg-slate-200 dark:bg-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+                    <button type="button" onClick={addProjectSkill} className="shrink-0 rounded-lg bg-slate-200 dark:bg-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer">
                       Add
                     </button>
                   </div>

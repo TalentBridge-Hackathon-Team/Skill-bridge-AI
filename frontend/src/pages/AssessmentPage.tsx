@@ -3749,7 +3749,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
                       }
                     }}
                     placeholder={`Ask or challenge AI mentor about ${activeSkillGap} (no solutions given)...`}
-                    className="flex-1 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                    className="flex-1 min-w-0 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
                   />
                   <button
                     type="button"
