@@ -36,9 +36,14 @@ class UserProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ['updated_at', 'resume_file', 'resume_parsed_text']
 
     def to_internal_value(self, data):
-        if isinstance(data, dict) and "resume_file" in data and (isinstance(data["resume_file"], str) or data["resume_file"] is None):
+        if isinstance(data, dict):
             data = dict(data)
-            data.pop("resume_file", None)
+            if "resume_file" in data and (isinstance(data["resume_file"], str) or data["resume_file"] is None):
+                data.pop("resume_file", None)
+            if not data.get("experience_level") or not str(data.get("experience_level")).strip():
+                data["experience_level"] = "Entry Level"
+            if data.get("target_date") == "" or data.get("target_date") is None:
+                data["target_date"] = None
         return super().to_internal_value(data)
 
     def validate_skills(self, value):

@@ -15,9 +15,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 try:
     from dotenv import load_dotenv
-    # Load from project root .env first, fallback to backend/.env if present
+    # Load from project root .env first, then let backend/.env override with active backend config
     load_dotenv(BASE_DIR.parent / '.env')
-    load_dotenv(BASE_DIR / '.env')
+    load_dotenv(BASE_DIR / '.env', override=True)
 except ImportError:
     pass
 

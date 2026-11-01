@@ -244,8 +244,14 @@ class ResumeUploadView(APIView):
                 filename=s3_res["filename"]
             )
 
-        reference_url = s3_res.get("s3_url") if s3_res.get("success") else (
-            profile.resume_file.url if profile.resume_file else ""
+        reference_url = (s3_res.get("public_url") or s3_res.get("s3_url")) if s3_res.get("success") else (
+            request.build_absolute_uri(profile.resume_file.url) if profile.resume_file else ""
+        )
+        storage_dest = "AWS S3" if s3_res.get("success") else "Local Storage"
+        evidence_desc = (
+            f"Learner CV stored in {storage_dest} ({s3_res.get('key', 'local')}) and dispatched to SQS."
+            if s3_res.get("success")
+            else f"Learner CV stored in {storage_dest}. (S3 note: {s3_res.get('error', 'S3 client offline')})"
         )
         SkillEvidence.objects.update_or_create(
             evidence_id=f"evi_resume_{profile.user_id}",
@@ -255,7 +261,7 @@ class ResumeUploadView(APIView):
                 "evidence_type": "project",
                 "title": f"Uploaded CV ({file_obj.name})",
                 "reference": reference_url,
-                "description": f"Learner CV stored in S3 ({s3_res.get('key', 'local')}) and dispatched to SQS.",
+                "description": evidence_desc,
                 "review_status": "unverified"
             }
         )

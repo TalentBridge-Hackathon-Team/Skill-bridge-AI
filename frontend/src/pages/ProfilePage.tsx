@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import type { FormEvent, ChangeEvent } from 'react';
 import {
   Plus, ExternalLink, Save, Upload, FileText,
-  CheckCircle2, Cloud, Zap, Trash2, AlertCircle, X
+  CheckCircle2, Cloud, Zap, Trash2, AlertCircle, X, HardDrive
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
@@ -88,14 +88,34 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
   const currentUserId = !authLoading && user ? String(user.id) : 'demo_user';
   const isDemo = authLoading || !user || currentUserId === 'demo_user' || user.username === 'demo';
 
+  const getStorageKey = (uid: string) => `skillbridge_profile_${uid}`;
+
   const [profile, setProfile] = useState<UserProfile>(() => {
+    // 1. Try reading any saved local draft first
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const rawDraft = window.localStorage.getItem(getStorageKey(currentUserId));
+        if (rawDraft) {
+          const parsed = JSON.parse(rawDraft);
+          if (parsed && typeof parsed === 'object') {
+            return {
+              ...parsed,
+              user_id: currentUserId,
+              name: parsed.name || user?.full_name || user?.username || '',
+              experience_level: parsed.experience_level?.trim() || 'Entry Level',
+            };
+          }
+        }
+      } catch {}
+    }
+
     if (!isDemo) {
       return {
         user_id: currentUserId,
         name: user?.full_name || user?.username || '',
         target_role: '',
         education: '',
-        experience_level: '',
+        experience_level: 'Entry Level',
         skills: [],
         professional_background: '',
         project_descriptions: [],
@@ -108,6 +128,7 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
       ...MOCK_PROFILE,
       user_id: currentUserId,
       name: user?.full_name || user?.username || MOCK_PROFILE.name,
+      experience_level: MOCK_PROFILE.experience_level || 'Entry Level',
     };
   });
   const [evidenceList, setEvidenceList] = useState<SkillEvidence[]>(isDemo ? MOCK_EVIDENCE : []);
@@ -163,19 +184,35 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
             target_role: (data.target_role === 'Junior Backend Developer' && !isDemo)
               ? ''
               : (data.target_role || ''),
+            experience_level: data.experience_level?.trim() || 'Entry Level',
+            professional_background: data.professional_background ?? '',
             user_id: currentUserId,
           };
           setProfile(mergedData);
+          try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+              window.localStorage.setItem(getStorageKey(currentUserId), JSON.stringify(mergedData));
+            }
+          } catch {}
           if (data.evidence?.length) setEvidenceList(data.evidence);
         }
       })
       .catch(() => {
         if (user) {
-          setProfile((prev) => ({
-            ...prev,
-            user_id: currentUserId,
-            name: user.full_name || user.username || prev.name,
-          }));
+          setProfile((prev) => {
+            const updated = {
+              ...prev,
+              user_id: currentUserId,
+              name: prev.name || user.full_name || user.username || '',
+              experience_level: prev.experience_level || 'Entry Level',
+            };
+            try {
+              if (typeof window !== 'undefined' && window.localStorage) {
+                window.localStorage.setItem(getStorageKey(currentUserId), JSON.stringify(updated));
+              }
+            } catch {}
+            return updated;
+          });
         }
       });
   }, [currentUserId, user, authLoading]);
@@ -191,31 +228,68 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
     }
     setFieldErrors({});
     setSaveStatus('saving');
-    try {
-      const payload: Partial<UserProfile> = {
-        ...profile,
-        user_id: currentUserId,
-        study_capacity_hours_per_week: Number(profile.study_capacity_hours_per_week) || 10,
-      };
-      if (typeof payload.resume_file === 'string' || payload.resume_file === null) {
-        delete (payload as any).resume_file;
-      }
-      delete (payload as any).evidence;
 
+    const normalizedSkills = typeof profile.skills === 'string'
+      ? (profile.skills as string).split(',').map((s) => s.trim()).filter(Boolean)
+      : (profile.skills || []);
+
+    const payload: Partial<UserProfile> = {
+      ...profile,
+      user_id: currentUserId,
+      name: profile.name.trim(),
+      target_role: profile.target_role.trim(),
+      education: profile.education?.trim() || '',
+      experience_level: profile.experience_level?.trim() || 'Entry Level',
+      skills: normalizedSkills,
+      professional_background: profile.professional_background?.trim() || '',
+      target_date: profile.target_date?.trim() || null,
+      study_capacity_hours_per_week: Number(profile.study_capacity_hours_per_week) || 14,
+    };
+    if (typeof payload.resume_file === 'string' || payload.resume_file === null) {
+      delete (payload as any).resume_file;
+    }
+    delete (payload as any).evidence;
+
+    // Immediately mirror to local storage
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(getStorageKey(currentUserId), JSON.stringify({ ...profile, ...payload }));
+        if (payload.target_role) {
+          window.localStorage.setItem('skillbridge_selected_role', payload.target_role);
+        }
+      }
+    } catch {}
+
+    try {
       const saved = await api.updateProfile(payload);
-      setProfile({
+      const updatedProfile: UserProfile = {
         ...saved,
+        experience_level: saved.experience_level?.trim() || payload.experience_level || 'Entry Level',
         user_id: currentUserId,
-      });
+      };
+      setProfile(updatedProfile);
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem(getStorageKey(currentUserId), JSON.stringify(updatedProfile));
+        }
+      } catch {}
+
+      // Clear API cache so other tabs immediately pick up the new role and skills
+      api.clearCache('/job-analyses/');
+      api.clearCache('/profiles/');
+
       setSaveStatus('saved');
       setSaveMessage('Profile saved successfully.');
     } catch (err: unknown) {
       console.error('Failed to update profile:', err);
       const msg = err instanceof Error ? err.message : 'Please check required fields.';
       setSaveStatus('error');
-      setSaveMessage(`Save failed (${msg}) — changes are stored locally.`);
+      setSaveMessage(`Save failed (${msg}) — your changes were safely saved to local storage.`);
     }
-    setTimeout(() => setSaveStatus('idle'), 4000);
+    setTimeout(() => {
+      setSaveStatus('idle');
+      setSaveMessage('');
+    }, 5000);
   };
 
   // -------------------------------------------------------------------------
@@ -355,6 +429,20 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
                 {fieldErrors.target_role && <p className="text-[11px] text-red-500 mt-0.5">{fieldErrors.target_role}</p>}
               </div>
 
+              {/* Experience Level */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Experience Level</label>
+                <select
+                  className={inputCls()}
+                  value={profile.experience_level || 'Entry Level'}
+                  onChange={(e) => setProfile({ ...profile, experience_level: e.target.value })}
+                >
+                  <option value="Entry Level">Entry Level</option>
+                  <option value="Mid Level">Mid Level</option>
+                  <option value="Senior Level">Senior Level</option>
+                </select>
+              </div>
+
               {/* Education */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Education</label>
@@ -392,14 +480,14 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
                 type="button"
                 onClick={handleSaveProfile}
                 disabled={saveStatus === 'saving'}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-900 dark:bg-white px-4 py-2 text-xs font-semibold text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 disabled:opacity-50 transition-colors"
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-slate-900 dark:bg-white px-4 py-2 text-xs font-semibold text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 disabled:opacity-50 transition-colors cursor-pointer"
               >
                 <Save className="w-3.5 h-3.5" />
                 {saveStatus === 'saving' ? 'Saving…' : 'Save Profile'}
               </button>
 
               {saveMessage && (
-                <p className={`text-[11px] text-center ${saveStatus === 'error' ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                <p className={`text-[11px] text-center font-medium ${saveStatus === 'error' ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
                   {saveMessage}
                 </p>
               )}
@@ -479,12 +567,12 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
               {uploadResult?.s3?.success && (
                 <div className="rounded-xl border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/20 p-3 space-y-2 text-xs">
                   <div className="flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400">
-                    <CheckCircle2 className="w-4 h-4" /> Cloud Pipeline Activated
+                    <CheckCircle2 className="w-4 h-4" /> Cloud S3 Pipeline Activated
                   </div>
                   <div className="space-y-1 text-[11px] text-slate-600 dark:text-slate-300 pt-1 border-t border-emerald-200 dark:border-emerald-900/40">
                     <div className="flex items-start gap-1.5">
                       <Cloud className="w-3.5 h-3.5 text-cyan-500 shrink-0 mt-0.5" />
-                      <span className="font-mono text-cyan-600 dark:text-cyan-300 break-all">{uploadResult.s3.s3_url}</span>
+                      <span className="font-mono text-cyan-600 dark:text-cyan-300 break-all">{uploadResult.s3.public_url || uploadResult.s3.s3_url}</span>
                     </div>
                     {uploadResult.sqs?.success && (
                       <div className="flex items-start gap-1.5">
@@ -494,7 +582,18 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
                     )}
                   </div>
                   <p className="text-slate-600 dark:text-slate-300 text-[11px] leading-relaxed">
-                    Your skills and background are saved to your profile and ready for job matching.
+                    Your resume has been stored in AWS S3 and is ready for skill matching.
+                  </p>
+                </div>
+              )}
+
+              {uploadResult && !uploadResult?.s3?.success && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20 p-3 space-y-1 text-xs">
+                  <div className="flex items-center gap-1.5 font-semibold text-amber-700 dark:text-amber-400">
+                    <AlertCircle className="w-4 h-4 shrink-0" /> Saved to Local Storage (Cloud S3 Offline)
+                  </div>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                    Your file was saved to local media storage. AWS S3 was not reached ({uploadResult.s3?.error || 'credentials required'}). To store directly in AWS S3, verify your AWS IAM credentials in <code className="text-[10px] bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded">backend/.env</code>.
                   </p>
                 </div>
               )}
@@ -733,36 +832,61 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
               {evidenceList.length === 0 && (
                 <p className="text-xs text-slate-400 dark:text-slate-500 py-4 text-center">No evidence records yet. Upload a CV or add evidence manually.</p>
               )}
-              {evidenceList.map((item, idx) => (
-                <div
-                  key={item.evidence_id ?? item.id ?? idx}
-                  className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3"
-                >
-                  <div className="min-w-0 space-y-0.5">
-                    <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">{item.title}</p>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{item.skill_name}</p>
-                    {item.reference && (
-                      <a
-                        href={item.reference}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-[11px] text-blue-500 hover:underline"
-                      >
-                        <ExternalLink className="w-3 h-3" /> {item.reference}
-                      </a>
-                    )}
+              {evidenceList.map((item, idx) => {
+                const isS3 = Boolean(item.reference && (item.reference.includes('s3.') || item.reference.includes('amazonaws.com') || item.reference.startsWith('s3://')));
+                const isLocal = Boolean(item.reference && (item.reference.includes('/media/') || item.reference.startsWith('/')));
+                const resolvedUrl = item.reference && item.reference.startsWith('/')
+                  ? `${(import.meta as any).env?.VITE_API_BASE_URL?.replace(/\/api\/?$/, '') || 'http://localhost:8000'}${item.reference}`
+                  : item.reference;
+
+                return (
+                  <div
+                    key={item.evidence_id ?? item.id ?? idx}
+                    className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 p-3"
+                  >
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-semibold text-slate-900 dark:text-white truncate">{item.title}</p>
+                        {isS3 && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-cyan-700 dark:text-cyan-300 bg-cyan-100/70 dark:bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-300 dark:border-cyan-800">
+                            <Cloud className="w-2.5 h-2.5" /> Cloud S3
+                          </span>
+                        )}
+                        {isLocal && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 dark:text-amber-300 bg-amber-100/70 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800">
+                            <HardDrive className="w-2.5 h-2.5" /> Local Server Storage
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">{item.skill_name}</p>
+                      {item.description && (
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 line-clamp-2 leading-relaxed">
+                          {item.description}
+                        </p>
+                      )}
+                      {resolvedUrl && (
+                        <a
+                          href={resolvedUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] text-blue-500 hover:underline break-all"
+                        >
+                          <ExternalLink className="w-3 h-3 shrink-0" /> {item.reference}
+                        </a>
+                      )}
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      (item.review_status ?? item.status) === 'verified'
+                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                        : (item.review_status ?? item.status) === 'needs_improvement'
+                          ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
+                          : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                    }`}>
+                      {item.review_status ?? item.status ?? 'unverified'}
+                    </span>
                   </div>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                    (item.review_status ?? item.status) === 'verified'
-                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                      : (item.review_status ?? item.status) === 'needs_improvement'
-                        ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
-                        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                  }`}>
-                    {item.review_status ?? item.status ?? 'unverified'}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

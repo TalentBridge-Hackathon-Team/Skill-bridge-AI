@@ -6,7 +6,7 @@ class UserProfile(models.Model):
     name = models.CharField(max_length=200, default="")
     target_role = models.CharField(max_length=200, default="", blank=True)
     education = models.CharField(max_length=255, blank=True)
-    experience_level = models.CharField(max_length=100, default="Entry Level")
+    experience_level = models.CharField(max_length=100, default="Entry Level", blank=True)
     skills = models.JSONField(default=list)  # list of skill names
     professional_background = models.TextField(blank=True, help_text="Summary of work history and professional context")
     project_descriptions = models.JSONField(default=list, help_text="List of {title, description, link, skills_demonstrated[]}")

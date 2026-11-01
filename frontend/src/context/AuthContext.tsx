@@ -180,6 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             k.startsWith('skillbridge_verified_project_') ||
             k.startsWith('skillbridge_all_passed_skills') ||
             k.startsWith('skillbridge_cached_') ||
+            k.startsWith('skillbridge_profile_') ||
             k.startsWith('sb_cache_')
           ) {
             if (!k.includes(`_${userId}`)) {
@@ -243,6 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       for (const k of keys) {
         if (
           k.startsWith('skillbridge_cached_') ||
+          k.startsWith('skillbridge_profile_') ||
           k.startsWith('sb_cache_') ||
           k.startsWith('skillbridge_budget_') ||
           k.startsWith('skillbridge_all_passed_skills') ||

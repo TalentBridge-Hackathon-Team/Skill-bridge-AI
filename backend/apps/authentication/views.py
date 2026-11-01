@@ -68,7 +68,7 @@ class RegisterView(APIView):
                 defaults={
                     "name": full_name,
                     "target_role": "",
-                    "experience_level": "",
+                    "experience_level": "Entry Level",
                     "skills": [],
                 },
             )

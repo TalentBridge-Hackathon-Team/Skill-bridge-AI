@@ -74,6 +74,13 @@ class ResumePipelineService:
             self._sqs = get_boto3_client('sqs')
         return self._sqs
 
+    def get_public_url(self, key: str) -> str:
+        endpoint = getattr(settings, 'AWS_ENDPOINT_URL', None)
+        region = getattr(settings, 'AWS_REGION', 'us-east-1')
+        if endpoint:
+            return f"{endpoint.rstrip('/')}/{self.bucket_name}/{key}"
+        return f"https://{self.bucket_name}.s3.{region}.amazonaws.com/{key}"
+
     def upload_resume(
         self,
         file_source,
@@ -116,7 +123,8 @@ class ResumePipelineService:
                 "bucket": self.bucket_name,
                 "key": key,
                 "filename": actual_filename,
-                "s3_url": f"s3://{self.bucket_name}/{key}"
+                "s3_url": f"s3://{self.bucket_name}/{key}",
+                "public_url": self.get_public_url(key)
             }
 
         try:
@@ -146,7 +154,8 @@ class ResumePipelineService:
                 "bucket": self.bucket_name,
                 "key": key,
                 "filename": actual_filename,
-                "s3_url": f"s3://{self.bucket_name}/{key}"
+                "s3_url": f"s3://{self.bucket_name}/{key}",
+                "public_url": self.get_public_url(key)
             }
         except Exception as exc:
             logger.error("Failed to upload resume to S3: %s", exc)
