@@ -243,11 +243,12 @@ def _extract_role_title(job_text: str, detected_skills: Optional[List[str]] = No
 
     raw_lines = [line.strip() for line in job_text.strip().split("\n")[:15] if line.strip()]
 
-    # 1. Explicit labeled patterns: e.g. "Job Title: Platform Engineer", "Position: Data Analyst"
+    # 1. Explicit labeled patterns or colon/dash headers:
+    # e.g. "Job Title: Senior Platform Engineer", "Role Overview: Senior Platform Engineer", "Role - Cloud Engineer"
     label_patterns = [
         r"(?:job\s+title|position\s+title|target\s+role|role\s+title)\s*[:\-]\s*([^\n\r]+)",
-        r"(?:(?:job\s+)?title|position)\s*[:\-]\s*([^\n\r]+)",
-        r"(?:^|\n)\s*role\s*[:\-]\s*(?!overview|summary|description|about|details)([^\n\r]+)",
+        r"^(?:role|position|job)\s*[:\-]\s*([^\n\r]+)",
+        r"^(?:role|position|job)?\s*(?:overview|description|summary|details)\s*[:\-]\s*([^\n\r]+)",
     ]
 
     for line in raw_lines:
@@ -255,25 +256,12 @@ def _extract_role_title(job_text: str, detected_skills: Optional[List[str]] = No
             m = re.search(pat, line, re.IGNORECASE)
             if m:
                 cand = m.group(1).strip().rstrip(".,;:-#*")
-                cand = re.sub(r"^(?:role|job|position)?\s*overview\s*[:\-]?\s*", "", cand, flags=re.IGNORECASE).strip()
+                cand = re.sub(r"^(?:role|job|position)?\s*(?:overview|description|summary)?\s*[:\-]?\s*", "", cand, flags=re.IGNORECASE).strip()
                 if is_valid_role_title(cand):
                     return cand.title() if cand.isupper() or cand.islower() else cand
 
-    # 2. Intro/hiring phrases: e.g. "We are looking for a Senior Platform Engineer to..."
-    intro_patterns = [
-        r"(?:we are (?:hiring|looking for|seeking)|seeking|hiring for|join (?:our team|us) as (?:a|an)?)\s+(?:a|an)?\s*([A-Za-z0-9/\-\s]+?(?:developer|engineer|analyst|architect|specialist|designer|scientist|manager|lead|administrator|consultant|programmer|technician))(?:\s+to|\s+who|\s+for|\.|\n|,|$)",
-        r"(?:looking for|seeking)\s+(?:a|an)?\s*([A-Za-z0-9/\-\s]{3,50}(?:developer|engineer|analyst|architect|specialist|designer|scientist))",
-    ]
-    first_block = " ".join(raw_lines[:8])
-    for pat in intro_patterns:
-        m = re.search(pat, first_block, re.IGNORECASE)
-        if m:
-            cand = m.group(1).strip().rstrip(".,;:-#*")
-            if is_valid_role_title(cand):
-                return cand.title() if cand.isupper() or cand.islower() else cand
-
-    # 3. Direct line matching tech roles (e.g. "# Platform Engineer" or "Senior DevOps Engineer")
-    title_line_pat = r"^[#*\-\s]*(?:senior|junior|lead|principal|staff|mid-level|associate)?\s*([A-Za-z0-9/\-\s]{3,50}?(?:developer|engineer|analyst|architect|specialist|designer|scientist|manager|administrator|consultant))\s*$"
+    # 2. Standalone line matching tech roles (e.g. "# Senior Platform Engineer" or "Senior Frontend Developer")
+    title_line_pat = r"^[#*\-\s]*((?:(?:senior|junior|lead|principal|staff|mid-level|associate|chief|head of)\s+)?(?:[A-Za-z0-9/\-&]+\s+){0,4}?(?:developer|engineer|architect|analyst|specialist|designer|scientist|manager|administrator|consultant|programmer))\s*$"
     for line in raw_lines:
         clean_line = re.sub(r"^[#*\-:\s]+|[#*\-:\s]+$", "", line).strip()
         if clean_line.lower() in GENERIC_ROLE_BLACKLIST:
@@ -284,16 +272,29 @@ def _extract_role_title(job_text: str, detected_skills: Optional[List[str]] = No
             if is_valid_role_title(cand):
                 return cand.title() if cand.isupper() or cand.islower() else cand
 
+    # 3. Intro/hiring phrases: e.g. "We are looking for a Senior Platform Engineer to...", "Seeking an experienced Data Analyst"
+    intro_patterns = [
+        r"(?:we are (?:hiring|looking for|seeking)|we need|seeking|looking for|hiring for|join (?:our team|us) as)\s+(?:an?\b)?\s*(?:experienced|talented|skilled|passionate|motivated|dynamic)?\s*([A-Za-z0-9/\-&]+(?:\s+[A-Za-z0-9/\-&]+){0,4}?\s*(?:developer|engineer|architect|analyst|specialist|designer|scientist|manager|administrator|consultant|programmer))(?:\s+to|\s+who|\s+for|\.|\n|,|$)",
+    ]
+    first_block = " ".join(raw_lines[:8])
+    for pat in intro_patterns:
+        m = re.search(pat, first_block, re.IGNORECASE)
+        if m:
+            cand = m.group(1).strip().rstrip(".,;:-#*")
+            cand = re.sub(r"^(?:an?|the)\s+", "", cand, flags=re.IGNORECASE).strip()
+            if is_valid_role_title(cand):
+                return cand.title() if cand.isupper() or cand.islower() else cand
+
     # 4. Domain & tech stack heuristics if no explicit title line is found
     lower_text = job_text.lower()
-    if any(k in lower_text for k in ["platform engineer", "platform engineering", "kubernetes", "terraform", "helm", "devops", "sre", "site reliability"]):
+    if any(k in lower_text for k in ["platform engineer", "platform engineering", "kubernetes", "terraform", "helm"]):
         return "Platform Engineer"
     elif any(k in lower_text for k in ["data analyst", "power bi", "tableau", "data analysis", "business intelligence", "sql reporting"]):
         return "Data Analyst"
     elif any(k in lower_text for k in ["machine learning", "deep learning", "nlp", "llm", "pytorch", "tensorflow", "computer vision"]):
         return "Machine Learning Engineer"
-    elif any(k in lower_text for k in ["cloud engineer", "aws", "azure", "gcp", "cloud architect"]):
-        return "Cloud Engineer"
+    elif any(k in lower_text for k in ["cloud engineer", "devops engineer", "aws", "azure", "gcp", "cloud architect", "site reliability"]):
+        return "Cloud & DevOps Engineer"
     elif any(k in lower_text for k in ["frontend", "react", "vue", "angular", "next.js", "tailwind", "ui/ux", "css"]):
         return "Frontend Developer"
     elif any(k in lower_text for k in ["backend", "django", "fastapi", "spring boot", "postgresql", "microservices"]):
