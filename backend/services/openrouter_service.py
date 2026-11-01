@@ -195,27 +195,114 @@ _GENERIC_DEFAULTS: List[Dict[str, Any]] = [
 ]
 
 
-def _extract_role_title(job_text: str) -> str:
+GENERIC_ROLE_BLACKLIST = {
+    "role overview", "job overview", "position overview", "overview",
+    "about the role", "about this role", "about the position", "about the job", "about us",
+    "role description", "job description", "position description", "description",
+    "role summary", "job summary", "position summary", "summary",
+    "key responsibilities", "responsibilities", "core responsibilities",
+    "requirements", "key requirements", "job requirements", "minimum requirements",
+    "qualifications", "preferred qualifications", "requirements & qualifications",
+    "who we are", "what you will do", "what you'll do", "what we're looking for",
+    "the role", "the position", "the opportunity", "role", "position", "job", "title",
+    "job title", "vacancy", "open position", "career opportunity",
+    "software role", "software engineer", "unspecified role", "junior backend developer",
+}
+
+
+def is_valid_role_title(candidate: Optional[str]) -> bool:
+    """Checks whether a candidate role title is a valid, non-generic professional title."""
+    if not candidate or not isinstance(candidate, str):
+        return False
+    cleaned = re.sub(r"^[#*\-:\s]+|[#*\-:\s]+$", "", candidate).strip()
+    low = cleaned.lower()
+    if len(cleaned) < 3 or len(cleaned) > 75:
+        return False
+    if low in GENERIC_ROLE_BLACKLIST:
+        return False
+    # Section headings ending with colon or matching generic section titles
+    if any(low == b or low.startswith(f"{b}:") or low.startswith(f"{b} -") for b in [
+        "role overview", "job overview", "overview", "job description", "about the role",
+        "summary", "position overview", "description", "responsibilities", "qualifications"
+    ]):
+        return False
+    # If the title contains only generic section words without a real designation
+    if low in ("role", "overview", "summary", "description", "vacancy", "job"):
+        return False
+    return True
+
+
+def _extract_role_title(job_text: str, detected_skills: Optional[List[str]] = None) -> str:
     """
-    Attempts to heuristically extract a role title from the first few lines of
-    the JD. Falls back to 'Software Engineer' if nothing identifiable is found.
+    Extracts the official role title from the job text, strictly ignoring generic headers
+    like 'Role Overview', 'About the Role', 'Job Description', etc.
+    Falls back to intelligent domain inference based on detected keywords/skills.
     """
-    title_patterns = [
-        # Explicit labels: Title: Senior Frontend Engineer, Role - Full Stack Developer
-        r"(?:(?:job\s+)?title|role|position)\s*[:\-]?\s*([^\n\r]+)",
-        # Intro phrases: We are looking for a Senior React Developer to... / Seeking an iOS Engineer...
-        r"(?:we are (?:hiring|looking for)|seeking|hiring for)\s+(?:a|an)?\s*([A-Za-z0-9/\-\s]+?(?:developer|engineer|analyst|designer|scientist|manager|lead|intern|specialist|architect))(?:\s+to|\s+who|\s+for|\.|\n|$)",
-        # Line starting directly with title
-        r"^([A-Za-z0-9/\-\s]{3,60}(?:developer|engineer|analyst|designer|scientist|manager|lead|intern|specialist|architect))",
+    if not job_text or not job_text.strip():
+        return "Software Engineer"
+
+    raw_lines = [line.strip() for line in job_text.strip().split("\n")[:15] if line.strip()]
+
+    # 1. Explicit labeled patterns: e.g. "Job Title: Platform Engineer", "Position: Data Analyst"
+    label_patterns = [
+        r"(?:job\s+title|position\s+title|target\s+role|role\s+title)\s*[:\-]\s*([^\n\r]+)",
+        r"(?:(?:job\s+)?title|position)\s*[:\-]\s*([^\n\r]+)",
+        r"(?:^|\n)\s*role\s*[:\-]\s*(?!overview|summary|description|about|details)([^\n\r]+)",
     ]
-    first_lines = "\n".join(job_text.strip().split("\n")[:6])
-    for pattern in title_patterns:
-        match = re.search(pattern, first_lines, re.IGNORECASE | re.MULTILINE)
-        if match:
-            candidate = match.group(1).strip().rstrip(".,;:")
-            # Sanity check: not too long, not empty
-            if 3 < len(candidate) < 80:
-                return candidate
+
+    for line in raw_lines:
+        for pat in label_patterns:
+            m = re.search(pat, line, re.IGNORECASE)
+            if m:
+                cand = m.group(1).strip().rstrip(".,;:-#*")
+                cand = re.sub(r"^(?:role|job|position)?\s*overview\s*[:\-]?\s*", "", cand, flags=re.IGNORECASE).strip()
+                if is_valid_role_title(cand):
+                    return cand.title() if cand.isupper() or cand.islower() else cand
+
+    # 2. Intro/hiring phrases: e.g. "We are looking for a Senior Platform Engineer to..."
+    intro_patterns = [
+        r"(?:we are (?:hiring|looking for|seeking)|seeking|hiring for|join (?:our team|us) as (?:a|an)?)\s+(?:a|an)?\s*([A-Za-z0-9/\-\s]+?(?:developer|engineer|analyst|architect|specialist|designer|scientist|manager|lead|administrator|consultant|programmer|technician))(?:\s+to|\s+who|\s+for|\.|\n|,|$)",
+        r"(?:looking for|seeking)\s+(?:a|an)?\s*([A-Za-z0-9/\-\s]{3,50}(?:developer|engineer|analyst|architect|specialist|designer|scientist))",
+    ]
+    first_block = " ".join(raw_lines[:8])
+    for pat in intro_patterns:
+        m = re.search(pat, first_block, re.IGNORECASE)
+        if m:
+            cand = m.group(1).strip().rstrip(".,;:-#*")
+            if is_valid_role_title(cand):
+                return cand.title() if cand.isupper() or cand.islower() else cand
+
+    # 3. Direct line matching tech roles (e.g. "# Platform Engineer" or "Senior DevOps Engineer")
+    title_line_pat = r"^[#*\-\s]*(?:senior|junior|lead|principal|staff|mid-level|associate)?\s*([A-Za-z0-9/\-\s]{3,50}?(?:developer|engineer|analyst|architect|specialist|designer|scientist|manager|administrator|consultant))\s*$"
+    for line in raw_lines:
+        clean_line = re.sub(r"^[#*\-:\s]+|[#*\-:\s]+$", "", line).strip()
+        if clean_line.lower() in GENERIC_ROLE_BLACKLIST:
+            continue
+        m = re.search(title_line_pat, clean_line, re.IGNORECASE)
+        if m:
+            cand = m.group(1).strip()
+            if is_valid_role_title(cand):
+                return cand.title() if cand.isupper() or cand.islower() else cand
+
+    # 4. Domain & tech stack heuristics if no explicit title line is found
+    lower_text = job_text.lower()
+    if any(k in lower_text for k in ["platform engineer", "platform engineering", "kubernetes", "terraform", "helm", "devops", "sre", "site reliability"]):
+        return "Platform Engineer"
+    elif any(k in lower_text for k in ["data analyst", "power bi", "tableau", "data analysis", "business intelligence", "sql reporting"]):
+        return "Data Analyst"
+    elif any(k in lower_text for k in ["machine learning", "deep learning", "nlp", "llm", "pytorch", "tensorflow", "computer vision"]):
+        return "Machine Learning Engineer"
+    elif any(k in lower_text for k in ["cloud engineer", "aws", "azure", "gcp", "cloud architect"]):
+        return "Cloud Engineer"
+    elif any(k in lower_text for k in ["frontend", "react", "vue", "angular", "next.js", "tailwind", "ui/ux", "css"]):
+        return "Frontend Developer"
+    elif any(k in lower_text for k in ["backend", "django", "fastapi", "spring boot", "postgresql", "microservices"]):
+        return "Backend Engineer"
+    elif any(k in lower_text for k in ["full stack", "fullstack"]):
+        return "Full Stack Developer"
+    elif any(k in lower_text for k in ["cybersecurity", "security analyst", "penetration testing", "infosec"]):
+        return "Security Engineer"
+
     return "Software Engineer"
 
 
@@ -524,13 +611,17 @@ class OpenRouterService:
           {role_title, summary, requirements[{skill_name, category,
            importance, source_excerpt}], extraction_source}
         """
-        inferred_title = role_title or "Software Engineer"
+        inferred_title = role_title if is_valid_role_title(role_title) else _extract_role_title(job_text)
         system_prompt = (
             f"You are a technical recruiter and talent architect assistant. Extract required and preferred technical skills "
             f"from the job description or career goal for the role '{inferred_title}'. "
             f"Return JSON strictly formatted with keys: 'role_title', 'summary', and 'requirements' "
             f"(a list of objects with 'skill_name', 'category' ['language'|'framework'|'database'|'cloud'|'devops'|'testing'|'architecture'|'tools'], "
-            f"'importance' ['required'|'preferred'], and 'source_excerpt'). Do not include markdown code fence formatting outside the JSON."
+            f"'importance' ['required'|'preferred'], and 'source_excerpt').\n"
+            f"CRITICAL INSTRUCTION FOR 'role_title': Extract the official professional job title (e.g., 'Senior Platform Engineer', 'Data Analyst', 'Cloud Architect'). "
+            f"Never return generic section headers or phrases such as 'Role Overview', 'Job Overview', 'About the Role', 'Summary', 'Job Description', 'Position Overview', or 'Overview'. "
+            f"If not explicitly named, infer the exact professional engineering title from the responsibilities and tech stack. "
+            f"Do not include markdown code fence formatting outside the JSON."
         )
 
         llm_result = self.generate_text(
@@ -553,13 +644,14 @@ class OpenRouterService:
 
                 parsed = json.loads(candidate_json)
                 if "requirements" in parsed and len(parsed["requirements"]) > 0:
-                    if not parsed.get("role_title") or parsed.get("role_title") in ("Software Engineer", "Software Role", "Junior Backend Developer"):
-                        if role_title and role_title not in ("Software Engineer", "Software Role", "Junior Backend Developer"):
-                            parsed["role_title"] = role_title
-                        else:
-                            parsed["role_title"] = _extract_role_title(job_text)
-                    elif role_title and role_title not in ("Software Engineer", "Software Role", "Junior Backend Developer"):
+                    cand_role = parsed.get("role_title")
+                    if is_valid_role_title(role_title) and role_title != "Software Engineer":
                         parsed["role_title"] = role_title
+                    elif is_valid_role_title(cand_role):
+                        parsed["role_title"] = cand_role.strip()
+                    else:
+                        parsed["role_title"] = _extract_role_title(job_text)
+
                     source_model = llm_result.get("model", "")
                     parsed.setdefault("extraction_source", f"live_ai_{source_model}" if source_model else "live_ai")
                     return parsed
@@ -680,7 +772,10 @@ class OpenRouterService:
                 {"skill_name": "Automated Testing", "category": "testing", "importance": "preferred", "source_excerpt": "Software quality assurance"}
             ]
 
-        final_title = role_title if (role_title and role_title not in ("Software Engineer", "Software Role", "Junior Backend Developer")) else _extract_role_title(job_text)
+        if is_valid_role_title(role_title) and role_title != "Software Engineer":
+            final_title = role_title
+        else:
+            final_title = _extract_role_title(job_text)
         return {
             "role_title": final_title,
             "summary": f"Extracted {len(detected_requirements)} verified technical requirements for {final_title}.",

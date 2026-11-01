@@ -36,6 +36,65 @@ export interface SkillGapAnalysisResponse {
   is_live_backend: boolean;
 }
 
+export const GENERIC_ROLE_TITLES = new Set([
+  'role overview', 'job overview', 'position overview', 'overview',
+  'about the role', 'about this role', 'about the position', 'about us',
+  'job description', 'role description', 'description',
+  'job summary', 'role summary', 'summary',
+  'responsibilities', 'requirements', 'qualifications', 'vacancy'
+]);
+
+export function cleanRoleTitle(rawTitle?: string, jobText?: string, requirements?: any[]): string {
+  const t = (rawTitle || '').trim();
+  const low = t.toLowerCase();
+  
+  const isGeneric = !t || GENERIC_ROLE_TITLES.has(low) || low.startsWith('role overview') || low.startsWith('job overview') || low.startsWith('about the role');
+
+  if (!isGeneric) {
+    return t;
+  }
+
+  // Attempt extraction from jobText if available
+  if (jobText) {
+    const hiringMatch = jobText.match(/(?:we are (?:hiring|looking for)|seeking|hiring for)\s+(?:a|an)?\s*([A-Za-z0-9/\-\s]+?(?:developer|engineer|analyst|architect|specialist|designer|scientist|manager|lead))/i);
+    if (hiringMatch && hiringMatch[1] && !GENERIC_ROLE_TITLES.has(hiringMatch[1].trim().toLowerCase())) {
+      return hiringMatch[1].trim();
+    }
+    const lowText = jobText.toLowerCase();
+    if (lowText.includes('platform engineer') || lowText.includes('platform engineering') || lowText.includes('kubernetes') || lowText.includes('terraform')) {
+      return 'Platform Engineer';
+    }
+    if (lowText.includes('data analyst') || lowText.includes('tableau') || lowText.includes('power bi')) {
+      return 'Data Analyst';
+    }
+    if (lowText.includes('cloud') || lowText.includes('devops') || lowText.includes('aws')) {
+      return 'Cloud & DevOps Engineer';
+    }
+    if (lowText.includes('frontend') || lowText.includes('react')) {
+      return 'Frontend Developer';
+    }
+    if (lowText.includes('backend') || lowText.includes('django') || lowText.includes('fastapi')) {
+      return 'Backend Engineer';
+    }
+  }
+
+  // Infer from requirements skills
+  if (requirements && requirements.length > 0) {
+    const skillNames = requirements.map(r => (r.skill_name || '').toLowerCase()).join(' ');
+    if (skillNames.includes('kubernetes') || skillNames.includes('terraform') || skillNames.includes('docker')) {
+      return 'Platform Engineer';
+    }
+    if (skillNames.includes('sql') && (skillNames.includes('tableau') || skillNames.includes('power bi') || skillNames.includes('excel') || skillNames.includes('pandas'))) {
+      return 'Data Analyst';
+    }
+    if (skillNames.includes('react') || skillNames.includes('vue') || skillNames.includes('typescript')) {
+      return 'Frontend Developer';
+    }
+  }
+
+  return 'Platform Engineer';
+}
+
 class SkillGapService {
   private selectedRoleId: string = '';
 
@@ -75,11 +134,13 @@ class SkillGapService {
           });
 
       if (Array.isArray(analyses) && analyses.length > 0) {
-        // Group by role_title + mode to present distinct, clean target roles
+        // Group by cleaned role_title + mode to present distinct, clean target roles
         const seen = new Set<string>();
         const uniqueAnalyses: JobAnalysis[] = [];
         for (const a of analyses) {
-          const key = `${a.role_title}_${a.mode || 'job_specific'}`;
+          const cleanedTitle = cleanRoleTitle(a.role_title, a.job_text, a.requirements);
+          a.role_title = cleanedTitle;
+          const key = `${cleanedTitle}_${a.mode || 'job_specific'}`;
           if (!seen.has(key)) {
             seen.add(key);
             uniqueAnalyses.push(a);
@@ -87,24 +148,28 @@ class SkillGapService {
         }
 
         return uniqueAnalyses.map(a => {
-          const title = (a.role_title || '').toLowerCase();
+          const cleanedTitle = a.role_title;
+          const title = cleanedTitle.toLowerCase();
           let dept = 'Platform Engineering';
           if (a.mode === 'goal_based') dept = 'Career Transition Milestone';
-          else if (title.includes('frontend') || title.includes('react')) dept = 'Frontend Engineering';
-          else if (title.includes('devops') || title.includes('cloud')) dept = 'Cloud & Infrastructure';
+          else if (title.includes('data analyst') || title.includes('data engineer') || title.includes('analytics')) dept = 'Data & Analytics';
+          else if (title.includes('frontend') || title.includes('react') || title.includes('ui/ux')) dept = 'Frontend Engineering';
+          else if (title.includes('devops') || title.includes('cloud') || title.includes('infrastructure')) dept = 'Cloud & Infrastructure';
+          else if (title.includes('platform')) dept = 'Platform Engineering';
           else if (title.includes('ai') || title.includes('machine learning')) dept = 'AI & Machine Learning';
           else if (title.includes('full stack') || title.includes('fullstack')) dept = 'Full Stack Engineering';
+          else if (title.includes('backend') || title.includes('software')) dept = 'Backend Engineering';
 
           return {
             id: a.analysis_id,
-            role_title: a.role_title,
+            role_title: cleanedTitle,
             level: a.mode === 'goal_based' ? 'Mode B: Goal-Based' : 'Mode A: Job-Specific (JD Matcher)',
             department: dept,
             mode: (a.mode as any) || 'job_specific',
             days_remaining: a.days_remaining || 14,
             study_hours_per_week: a.study_hours_per_week || 14,
             job_text: a.job_text || '',
-            summary: a.summary || `Extracted requirements for ${a.role_title}`,
+            summary: a.summary || `Extracted requirements for ${cleanedTitle}`,
             requirements: a.requirements || []
           };
         });

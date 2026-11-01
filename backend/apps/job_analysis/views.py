@@ -110,6 +110,18 @@ class JobAnalysisListCreateView(APIView):
                 candidates.extend([str(auth_user), getattr(request.user, "username", "")])
 
         analyses = JobAnalysis.objects.filter(user_id__in=list(set(filter(None, candidates)))).prefetch_related('requirements').order_by('-created_at')
+        # Dynamic self-heal for legacy records with generic titles like 'Role Overview'
+        from services.openrouter_service import is_valid_role_title, _extract_role_title
+        for a in analyses:
+            if not is_valid_role_title(a.role_title):
+                healed = _extract_role_title(a.job_text)
+                if healed and healed != a.role_title:
+                    a.role_title = healed
+                    try:
+                        JobAnalysis.objects.filter(pk=a.pk).update(role_title=healed)
+                    except Exception:
+                        pass
+
         serializer = JobAnalysisSerializer(analyses, many=True)
         return Response(serializer.data)
 
@@ -127,11 +139,11 @@ class JobAnalysisListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        from services.openrouter_service import is_valid_role_title, _extract_role_title
         role_title = request.data.get("role_title") or request.data.get("title")
-        if not role_title and raw_job_text:
-            from services.openrouter_service import _extract_role_title
+        if not is_valid_role_title(role_title) and raw_job_text:
             role_title = _extract_role_title(raw_job_text)
-        if not role_title:
+        if not is_valid_role_title(role_title):
             role_title = "Software Engineer"
         mode = request.data.get("mode", "job_specific")
 
@@ -194,7 +206,9 @@ class JobAnalysisListCreateView(APIView):
 
         extracted_reqs = extracted.get("requirements", [])
         extraction_source = extracted.get("extraction_source", "rule_engine")
-        final_role_title = extracted.get("role_title", role_title)
+        final_role_title = extracted.get("role_title")
+        if not is_valid_role_title(final_role_title):
+            final_role_title = role_title if is_valid_role_title(role_title) else _extract_role_title(job_text)
         summary = extracted.get("summary") or f"Extracted via {extraction_source}."
 
         # Safety net: if we still got nothing, force defaults
@@ -257,6 +271,15 @@ class JobAnalysisDetailView(APIView):
     def get(self, request, analysis_id):
         try:
             analysis = JobAnalysis.objects.prefetch_related('requirements').get(analysis_id=analysis_id)
+            from services.openrouter_service import is_valid_role_title, _extract_role_title
+            if not is_valid_role_title(analysis.role_title):
+                healed = _extract_role_title(analysis.job_text)
+                if healed and healed != analysis.role_title:
+                    analysis.role_title = healed
+                    try:
+                        JobAnalysis.objects.filter(pk=analysis.pk).update(role_title=healed)
+                    except Exception:
+                        pass
         except JobAnalysis.DoesNotExist:
             return Response(
                 {"error": f"Job analysis '{analysis_id}' not found."},

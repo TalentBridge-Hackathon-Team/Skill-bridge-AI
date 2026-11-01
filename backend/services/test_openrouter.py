@@ -62,3 +62,61 @@ class TestOpenRouterService:
         vector = rag.generate_resume_embeddings("Test resume text")
         assert isinstance(vector, list)
         assert len(vector) > 0
+
+    def test_is_valid_role_title_rejects_generic_headers(self):
+        """Verify generic headers like 'Role Overview' and 'About the Role' are rejected."""
+        from services.openrouter_service import is_valid_role_title
+        assert is_valid_role_title("Role Overview") is False
+        assert is_valid_role_title("Job Overview") is False
+        assert is_valid_role_title("About the Role") is False
+        assert is_valid_role_title("Job Description") is False
+        assert is_valid_role_title("Overview") is False
+        assert is_valid_role_title("Summary") is False
+        assert is_valid_role_title("Role Overview: ") is False
+        assert is_valid_role_title("Responsibilities") is False
+        assert is_valid_role_title("Software Engineer") is False
+        assert is_valid_role_title("Platform Engineer") is True
+        assert is_valid_role_title("Senior Cloud Architect") is True
+        assert is_valid_role_title("Data Analyst") is True
+
+    def test_extract_role_title_ignores_role_overview(self):
+        """Verify _extract_role_title bypasses 'Role Overview' and extracts real target role."""
+        from services.openrouter_service import _extract_role_title
+        jd_text = (
+            "Role Overview\n"
+            "We are looking for a Platform Engineer to join our infrastructure team.\n"
+            "You will be responsible for Kubernetes, Terraform, and CI/CD automation."
+        )
+        extracted = _extract_role_title(jd_text)
+        assert extracted == "Platform Engineer"
+
+    def test_extract_role_title_from_prefixed_header(self):
+        """Verify 'Role Overview: Senior Platform Engineer' extracts 'Senior Platform Engineer'."""
+        from services.openrouter_service import _extract_role_title
+        jd_text = (
+            "Role Overview: Senior Platform Engineer\n"
+            "Responsibilities: Maintain cloud infrastructure on AWS and Kubernetes."
+        )
+        extracted = _extract_role_title(jd_text)
+        assert "Platform Engineer" in extracted
+
+    def test_extract_job_requirements_rejects_role_overview_from_llm(self):
+        """Verify LLM returning 'Role Overview' is intercepted and corrected to the real title."""
+        service = OpenRouterService()
+        mock_response = {
+            "role_title": "Role Overview",
+            "summary": "Extracted via OpenRouter",
+            "requirements": [
+                {"skill_name": "Kubernetes", "category": "cloud", "importance": "required", "source_excerpt": "K8s"},
+                {"skill_name": "Terraform", "category": "devops", "importance": "required", "source_excerpt": "IaC"}
+            ]
+        }
+        jd_text = (
+            "Role Overview\n"
+            "We are seeking a Platform Engineer to automate cloud infrastructure using Kubernetes and Terraform."
+        )
+        with patch.object(service, "generate_text", return_value={"success": True, "text": json.dumps(mock_response)}):
+            result = service.extract_job_requirements(jd_text)
+            assert result["role_title"] != "Role Overview"
+            assert result["role_title"] == "Platform Engineer"
+

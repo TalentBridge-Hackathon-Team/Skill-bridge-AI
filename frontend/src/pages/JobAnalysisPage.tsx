@@ -63,6 +63,7 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
               if (latest.job_text) setJobText(latest.job_text);
               setGoalText('');
             }
+            if (latest.role_title) setCustomRoleTitle(latest.role_title);
             if (latest.days_remaining) setDaysRemaining(latest.days_remaining);
             if (latest.study_hours_per_week) setStudyHoursPerWeek(latest.study_hours_per_week);
           }
@@ -71,9 +72,12 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
       .catch(() => {});
   }, [currentUserId]);
 
+  const [customRoleTitle, setCustomRoleTitle] = useState<string>('');
+
   const handleResetForm = () => {
     setJobText('');
     setGoalText('');
+    setCustomRoleTitle('');
     setJobImage(null);
     setExtractedRequirements([]);
     setActiveAnalysisId(null);
@@ -113,14 +117,19 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
         if (jobText) formData.append('job_text', jobText);
         if (jobImage) formData.append('job_image', jobImage);
 
-        // Dynamically extract role title if present in text headers
-        let extractedRole = '';
-        if (jobText) {
-          const titleMatch = jobText.match(/(?:(?:job\s+)?title|role|position)\s*[:\-]?\s*([^\n\r]+)/i);
-          if (titleMatch && titleMatch[1]) {
-            extractedRole = titleMatch[1].trim();
-          } else if (jobText.trim().length < 80 && !jobText.includes('\n')) {
-            extractedRole = jobText.trim();
+        // Dynamically extract role title if custom title not specified
+        let extractedRole = customRoleTitle.trim();
+        const GENERIC_BLACKLIST = /^(?:role\s+overview|job\s+overview|position\s+overview|overview|about\s+the\s+role|about\s+us|job\s+description|description|summary|responsibilities|requirements)$/i;
+
+        if (!extractedRole && jobText) {
+          const hiringMatch = jobText.match(/(?:we are (?:hiring|looking for)|seeking|hiring for|join (?:our team|us) as (?:a|an)?)\s+(?:a|an)?\s*([A-Za-z0-9/\-\s]+?(?:developer|engineer|analyst|architect|specialist|designer|scientist|manager|lead))/i);
+          if (hiringMatch && hiringMatch[1] && !GENERIC_BLACKLIST.test(hiringMatch[1].trim())) {
+            extractedRole = hiringMatch[1].trim();
+          } else {
+            const titleMatch = jobText.match(/(?:job\s+title|position\s+title|target\s+role)\s*[:\-]\s*([^\n\r]+)/i);
+            if (titleMatch && titleMatch[1] && !GENERIC_BLACKLIST.test(titleMatch[1].trim())) {
+              extractedRole = titleMatch[1].trim();
+            }
           }
         }
         if (extractedRole) {
@@ -132,6 +141,11 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
         formData.append('user_id', currentUserId);
 
         const result = await api.submitJobAnalysis(formData);
+
+        if (result.role_title) {
+          setCustomRoleTitle(result.role_title);
+          setRestoredAnalysisTitle(result.role_title);
+        }
 
         // Wire the API response into the editable requirements list
         if (result.requirements && result.requirements.length > 0) {
@@ -313,6 +327,7 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
                     type="button"
                     onClick={() => {
                       setJobText("We are seeking a Junior Backend Developer to build and maintain RESTful web APIs using Python, Django REST Framework, and PostgreSQL. Requirements include automated API unit and integration testing, basic SQL query optimization, and clean Git workflows.");
+                      setCustomRoleTitle('Junior Backend Developer');
                       setDaysRemaining(14);
                       setStudyHoursPerWeek(14);
                       setRestoredAnalysisTitle(null);
@@ -339,6 +354,27 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
                   </button>
                 </div>
               )}
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label htmlFor="target-role-input" className="block text-xs font-medium text-slate-300">
+                    Target Role / Job Title <span className="text-slate-500 font-normal">(optional — auto-extracted if left blank)</span>
+                  </label>
+                  {customRoleTitle && (
+                    <span className="text-[10px] text-cyan-400 font-semibold px-2 py-0.5 rounded-full bg-cyan-950/40 border border-cyan-800/50">
+                      Target: {customRoleTitle}
+                    </span>
+                  )}
+                </div>
+                <input
+                  id="target-role-input"
+                  type="text"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none placeholder:text-slate-600"
+                  placeholder="e.g. Platform Engineer, Senior Cloud Architect, Data Analyst..."
+                  value={customRoleTitle}
+                  onChange={(e) => setCustomRoleTitle(e.target.value)}
+                />
+              </div>
 
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">

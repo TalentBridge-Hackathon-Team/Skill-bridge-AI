@@ -36,6 +36,7 @@ import {
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { skillGapService } from '../services/skillGapService';
+import { detectSkillDomain } from '../utils/skillDomain';
 import type {
   AssessmentSubmission,
   EvaluationResult,
@@ -287,52 +288,6 @@ export interface ConceptAnimationData {
   description: string;
   nodes?: ConceptAnimationNode[];
   steps?: Array<ConceptAnimationStep | string>;
-}
-
-export function detectSkillDomain(skillName: string, message: string = ''): 'ml_ai' | 'vector_ai' | 'database' | 'devops_cloud' | 'security' | 'frontend' | 'backend_api' | 'algorithms' | 'general_engineering' {
-  const combined = `${skillName} ${message}`.toLowerCase();
-  if (
-    combined.includes('pytorch') || combined.includes('torch') || combined.includes('tensorflow') ||
-    combined.includes('keras') || combined.includes('scikit-learn') || combined.includes('sklearn') ||
-    combined.includes('deep learning') || combined.includes('neural network') || combined.includes('transformer') ||
-    combined.includes('huggingface') || combined.includes('llm') || combined.includes('autograd') ||
-    combined.includes('dataloader') || combined.includes('tensor') || combined.includes('gradient descent') ||
-    combined.includes('backprop') || combined.includes('cnn') || combined.includes('rnn') ||
-    combined.includes('lstm') || combined.includes('cuda') || combined.includes('loss.backward') ||
-    combined.includes('nn.module') || combined.includes('optimizer') || combined.includes('crossentropyloss') ||
-    combined.includes('adamw') || combined.includes('machine learning') || combined.includes('ml/ai')
-  ) {
-    return 'ml_ai';
-  }
-  if (combined.includes('vector') || combined.includes('embedding') || combined.includes('hnsw') || combined.includes('cosine') || combined.includes('pgvector') || combined.includes('rag') || combined.includes('nearest neighbor') || combined.includes('faiss')) {
-    return 'vector_ai';
-  }
-  if (combined.includes('postgres') || combined.includes('postgresql') || combined.includes('mysql') || combined.includes('sqlite') || combined.includes('redis') || combined.includes('mongodb') || combined.includes('sql') || combined.includes('btree') || combined.includes('b-tree') || combined.includes('wal') || combined.includes('acid') || combined.includes('query planner')) {
-    return 'database';
-  }
-  if (combined.includes('docker') || combined.includes('container') || combined.includes('kubernetes') || combined.includes('k8s') || combined.includes('aws') || combined.includes('s3') || combined.includes('sqs') || combined.includes('lambda') || combined.includes('ci/cd') || combined.includes('terraform') || combined.includes('devops')) {
-    return 'devops_cloud';
-  }
-  if (
-    combined.includes('security') || combined.includes('audit') || combined.includes('pentest') ||
-    combined.includes('penetration') || combined.includes('vulnerability') || combined.includes('siem') ||
-    combined.includes('firewall') || combined.includes('cryptography') || combined.includes('cipher') ||
-    combined.includes('jwt') || combined.includes('oauth') || combined.includes('token') ||
-    combined.includes('auth') || combined.includes('rbac') || combined.includes('secret key') ||
-    combined.includes('csrf') || combined.includes('xss') || combined.includes('cors') || combined.includes('owasp')
-  ) {
-    return 'security';
-  }
-  if (combined.includes('react') || combined.includes('vue') || combined.includes('angular') || combined.includes('typescript') || combined.includes('javascript') || combined.includes('css') || combined.includes('tailwind') || combined.includes('next.js') || combined.includes('virtual dom') || combined.includes('frontend')) {
-    return 'frontend';
-  }
-  if (combined.includes('api') || combined.includes('rest') || combined.includes('django') || combined.includes('drf') || combined.includes('fastapi') || combined.includes('flask') || combined.includes('express') || combined.includes('node') || combined.includes('endpoint') || combined.includes('serializer') || combined.includes('viewset') || combined.includes('middleware')) {
-    return 'backend_api';
-  }
-  if (combined.includes('algorithm') || combined.includes('data structure') || combined.includes('tree') || combined.includes('graph') || combined.includes('binary search') || combined.includes('sorting') || combined.includes('dynamic programming') || combined.includes('recursion') || combined.includes('big-o')) {
-    return 'algorithms';
-  }
-  return 'general_engineering';
 }
 
 export interface MentorChatMessage {
@@ -1222,6 +1177,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
   // Dynamically generate AI personalized syllabus, rubric, and animation whenever active skill, project, or role changes
   useEffect(() => {
     let isCancelled = false;
+    setDynamicSyllabus(null);
     setIsGeneratingSyllabus(true);
 
     const targetRoleObj = roles.find(r => r.id === selectedRoleId);
@@ -1237,7 +1193,9 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
     }).then(res => {
       if (isCancelled) return;
       if (res && res.syllabus_steps && res.syllabus_steps.length > 0) {
-        setDynamicSyllabus(res as any);
+        if (!res.skill_name || res.skill_name.toLowerCase().trim() === activeSkillGap.toLowerCase().trim()) {
+          setDynamicSyllabus(res as any);
+        }
       }
     }).catch(err => {
       console.warn('Could not load AI dynamic syllabus, using standard fallback:', err);
@@ -2800,7 +2758,10 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
                 <button
                   key={gap.skill_name}
                   type="button"
-                  onClick={() => setActiveSkillGap(gap.skill_name)}
+                  onClick={() => {
+                    setActiveSkillGap(gap.skill_name);
+                    setDynamicSyllabus(null);
+                  }}
                   className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all border ${
                     isActive
                       ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-slate-900 dark:border-white shadow-sm'
@@ -3809,21 +3770,23 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
           <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800/80 bg-white dark:bg-[#0e131f] p-5 space-y-4 shadow-xs">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-sm">
-                <BookOpen className="w-4 h-4 text-indigo-500" />
-                <span>{activeSkillGap} 10-Point Rubric</span>
+                <BookOpen className="w-4 h-4 text-indigo-500 shrink-0" />
+                <span>{activeSkillGap ? `${activeSkillGap} 10-Point Rubric` : '10-Point Rubric'}</span>
               </div>
-              {dynamicSyllabus && (
+              {dynamicSyllabus && (!dynamicSyllabus.skill_name || dynamicSyllabus.skill_name.toLowerCase().trim() === activeSkillGap.toLowerCase().trim()) && (
                 <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
                   AI Tailored
                 </span>
               )}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Evaluated deterministically according to the {activeSkillGap} standard:
+              {`Evaluated deterministically according to the ${activeSkillGap || 'skill'} standard:`}
             </p>
 
             <ul className="space-y-2.5 text-xs">
-              {(dynamicSyllabus?.rubric || activePracticeProject?.rubric_breakdown || activePreset.rubric).map((item: any, idx: number) => {
+              {((dynamicSyllabus && (!dynamicSyllabus.skill_name || dynamicSyllabus.skill_name.toLowerCase().trim() === activeSkillGap.toLowerCase().trim())
+                ? dynamicSyllabus.rubric
+                : null) || activePracticeProject?.rubric_breakdown || activePreset.rubric).map((item: any, idx: number) => {
                 const criterionName = item.name || item.criterion || item.title || item.criterion_name || `Criterion ${idx + 1}`;
                 const criterionDesc = item.desc || item.description || item.detail || item.explanation || '';
                 const criterionPts = item.pts ?? item.points ?? item.score ?? item.max_points ?? 2;
@@ -3847,7 +3810,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
                 Verified Evidence Requirement
               </div>
               <p className="text-indigo-700 dark:text-indigo-400 leading-relaxed">
-                Scoring ≥ 8/10 converts <strong>{activeSkillGap}</strong> from Unverified to <strong className="text-emerald-500">Demonstrated</strong>, linking verified evidence to your profile and updating your roadmap plan.
+                {`Scoring ≥ 8/10 converts `}<strong>{activeSkillGap}</strong>{` from Unverified to `}<strong className="text-emerald-500">Demonstrated</strong>{`, linking verified evidence to your profile and updating your roadmap plan.`}
               </p>
             </div>
           </div>

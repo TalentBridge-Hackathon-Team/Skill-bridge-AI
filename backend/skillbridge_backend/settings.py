@@ -97,27 +97,38 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'skillbridge_backend.wsgi.application'
 
-_db_url = os.getenv("DATABASE_URL")
-if not _db_url:
-    raise RuntimeError("DATABASE_URL environment variable is not set. Aborting startup.")
+import sys
+_is_testing = 'pytest' in sys.modules or any('pytest' in arg for arg in sys.argv) or 'test' in sys.argv
 
-tmpPostgres = urlparse(_db_url)
-_db_options = dict(parse_qsl(tmpPostgres.query))
-_db_options.setdefault('connect_timeout', 10)
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': tmpPostgres.path.replace('/', ''),
-        'USER': tmpPostgres.username,
-        'PASSWORD': tmpPostgres.password,
-        'HOST': tmpPostgres.hostname,
-        'PORT': tmpPostgres.port or 5432,
-        'OPTIONS': _db_options,
-        'CONN_MAX_AGE': 600,
-        'CONN_HEALTH_CHECKS': True,
+if _is_testing:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
     }
-}
+else:
+    _db_url = os.getenv("DATABASE_URL")
+    if not _db_url:
+        raise RuntimeError("DATABASE_URL environment variable is not set. Aborting startup.")
+
+    tmpPostgres = urlparse(_db_url)
+    _db_options = dict(parse_qsl(tmpPostgres.query))
+    _db_options.setdefault('connect_timeout', 10)
+
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': tmpPostgres.path.replace('/', ''),
+            'USER': tmpPostgres.username,
+            'PASSWORD': tmpPostgres.password,
+            'HOST': tmpPostgres.hostname,
+            'PORT': tmpPostgres.port or 5432,
+            'OPTIONS': _db_options,
+            'CONN_MAX_AGE': 600,
+            'CONN_HEALTH_CHECKS': True,
+        }
+    }
 
 NEON_REALTIME_SQL_API_URL = os.getenv('Realtime_SQL_API_endpoint_URL', '')
 

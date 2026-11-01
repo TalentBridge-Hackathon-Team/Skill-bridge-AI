@@ -143,7 +143,7 @@ describe('Domain Guard & Edge Case Handling', () => {
   });
 
   it('correctly classifies engineering skills into their proper domain via detectSkillDomain', async () => {
-    const { detectSkillDomain } = await import('../pages/AssessmentPage');
+    const { detectSkillDomain } = await import('../utils/skillDomain');
 
     expect(detectSkillDomain('PyTorch')).toBe('ml_ai');
     expect(detectSkillDomain('Deep Learning')).toBe('ml_ai');

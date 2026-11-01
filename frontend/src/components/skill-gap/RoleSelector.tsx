@@ -18,6 +18,7 @@ import {
   evaluateAdaptiveCapacity,
   updateDeadlineTimestamp
 } from '../../utils/horizonCapacityEngine';
+import { cleanRoleTitle } from '../../services/skillGapService';
 
 interface RoleSelectorProps {
   roles: TargetRoleOption[];
@@ -183,7 +184,7 @@ export default function RoleSelector({
                   </div>
                   <div>
                     <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                      {selectedRole.role_title}
+                      {cleanRoleTitle(selectedRole.role_title, selectedRole.job_text, selectedRole.requirements)}
                       <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 transition-transform" />
                     </h2>
                   </div>
@@ -228,7 +229,7 @@ export default function RoleSelector({
                       >
                         <div>
                           <div className="flex items-center gap-1.5 font-semibold">
-                            <span>{role.role_title}</span>
+                            <span>{cleanRoleTitle(role.role_title, role.job_text, role.requirements)}</span>
                             <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500">
                               {role.mode === 'job_specific' ? 'Vacancy' : 'Goal'}
                             </span>
