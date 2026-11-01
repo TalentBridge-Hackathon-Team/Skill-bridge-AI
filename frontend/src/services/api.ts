@@ -25,6 +25,48 @@ function getStoredToken(): string | null {
   return localStorage.getItem('sb_access');
 }
 
+// ── Silent Token Refresh ──────────────────────────────────────────────────────
+// Prevents refresh storms when multiple requests 401 at the same time.
+let _refreshPromise: Promise<string | null> | null = null;
+
+async function silentRefresh(): Promise<string | null> {
+  if (_refreshPromise) return _refreshPromise;
+
+  _refreshPromise = (async () => {
+    const refresh = localStorage.getItem('sb_refresh');
+    if (!refresh) return null;
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/refresh/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh }),
+      });
+      if (!res.ok) {
+        // Refresh token itself expired or blacklisted — full session expired
+        localStorage.removeItem('sb_access');
+        localStorage.removeItem('sb_refresh');
+        window.dispatchEvent(new CustomEvent('skillbridge_session_expired'));
+        return null;
+      }
+      const data = await res.json();
+      const newAccess: string = data.access;
+      if (!newAccess) return null;
+      localStorage.setItem('sb_access', newAccess);
+      // If token rotation is enabled the backend also sends a new refresh token
+      if (data.refresh) {
+        localStorage.setItem('sb_refresh', data.refresh);
+      }
+      return newAccess;
+    } catch {
+      return null;
+    } finally {
+      _refreshPromise = null;
+    }
+  })();
+
+  return _refreshPromise;
+}
+
 interface CacheEntry<T> {
   data: T;
   timestamp: number;
@@ -64,8 +106,18 @@ export function clearApiCache(prefix?: string): void {
 }
 
 async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  try {
+  // Inner helper that executes one fetch attempt with a given token
+  const doFetch = async (accessToken: string | null): Promise<Response> => {
     const isFormData = options.body instanceof FormData;
+    const headers: Record<string, string> = {
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...((options.headers as Record<string, string>) || {}),
+    };
+    return fetch(`${API_BASE_URL}${endpoint}`, { headers, ...options });
+  };
+
+  try {
     const method = (options.method || 'GET').toUpperCase();
     const isGet = method === 'GET';
     const token = getStoredToken();
@@ -94,18 +146,21 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
       clearApiCache();
     }
 
-    const headers: Record<string, string> = {
-      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-      // Attach Bearer token if one is stored
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...((options.headers as Record<string, string>) || {}),
-    };
+    let res = await doFetch(token);
 
-    const res = await fetch(`${API_BASE_URL}${endpoint}`, {
-      headers,
-      ...options
-    });
+    // ── Silent token refresh on 401 ──────────────────────────────────────────
+    // If the access token expired, try to silently get a new one and retry once.
+    if (res.status === 401 && localStorage.getItem('sb_refresh')) {
+      const newToken = await silentRefresh();
+      if (newToken) {
+        // Retry the original request with the fresh token
+        res = await doFetch(newToken);
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     if (!res.ok) {
+      // If still 401 after refresh attempt, the session is truly expired
       if (res.status === 401 && typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('skillbridge_session_expired'));
       }
@@ -129,6 +184,7 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
       } catch {}
       throw new Error(errorDetail ? `HTTP ${res.status}: ${errorDetail}` : `HTTP ${res.status}: ${res.statusText}`);
     }
+
     let data: any = {};
     if (typeof res.text === 'function') {
       const rawSuccessText = await res.text();
@@ -140,12 +196,16 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
     } else {
       data = await res.json();
     }
+
+    // Cache successful GET responses
     if (isGet) {
+      const freshToken = getStoredToken(); // may have been refreshed above
+      const freshCacheKey = `${endpoint}::${freshToken || 'anon'}`;
       const entry = { data, timestamp: Date.now() };
-      apiCache.set(cacheKey, entry);
+      apiCache.set(freshCacheKey, entry);
       try {
         if (typeof window !== 'undefined' && window.sessionStorage) {
-          window.sessionStorage.setItem(`sb_cache_${cacheKey}`, JSON.stringify(entry));
+          window.sessionStorage.setItem(`sb_cache_${freshCacheKey}`, JSON.stringify(entry));
         }
       } catch {}
     }
@@ -155,6 +215,7 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
     throw err;
   }
 }
+
 
 export const api = {
   clearCache: clearApiCache,

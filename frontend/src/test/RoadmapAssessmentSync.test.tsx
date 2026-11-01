@@ -4,6 +4,16 @@ import RoadmapPage from '../pages/RoadmapPage';
 import { skillGapService } from '../services/skillGapService';
 import { MOCK_TARGET_ROLES } from './testFixtures';
 
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'usr_demo_001', name: 'Demo User', email: 'demo@example.com' },
+    token: 'mock-token',
+    isAuthenticated: true,
+    isLoading: false
+  }),
+  AuthProvider: ({ children }: any) => children
+}));
+
 describe('Roadmap and Practical Assessment Correlation (End-to-End Sync)', () => {
   const setActiveTabMock = vi.fn();
 

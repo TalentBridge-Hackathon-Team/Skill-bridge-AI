@@ -160,55 +160,81 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('skillbridge_session_expired', handleExpired);
   }, []);
 
-  // On mount: if we have a stored access token, verify it by calling /me/
+  // On mount: if we have a stored access token, verify it by calling /me/.
+  // If /me/ returns 401 (expired access token), try to silently refresh first.
   useEffect(() => {
     const token = localStorage.getItem(ACCESS_KEY);
     if (!token) {
       setIsLoading(false);
       return;
     }
-    authGet<AuthUser>('/auth/me/', token)
-      .then((u) => {
-        // On every page load where we verify the token, sweep any previous-user stale data.
-        // This handles users who had stale localStorage from before this fix was deployed.
-        const userId = String(u.id);
-        try {
-          const keys = Object.keys(localStorage);
-          for (const k of keys) {
-            if (
-              k.startsWith('skillbridge_passed_assessment_') ||
-              k.startsWith('skillbridge_verified_project_') ||
-              k.startsWith('skillbridge_all_passed_skills') ||
-              k.startsWith('skillbridge_cached_') ||
-              k.startsWith('sb_cache_')
-            ) {
-              // Only remove if the key is NOT scoped to this user's ID
-              if (!k.includes(`_${userId}`)) {
-                localStorage.removeItem(k);
-              }
+
+    const verifyAndSetUser = async (accessToken: string): Promise<void> => {
+      const u = await authGet<AuthUser>('/auth/me/', accessToken);
+      const userId = String(u.id);
+      try {
+        const keys = Object.keys(localStorage);
+        for (const k of keys) {
+          if (
+            k.startsWith('skillbridge_passed_assessment_') ||
+            k.startsWith('skillbridge_verified_project_') ||
+            k.startsWith('skillbridge_all_passed_skills') ||
+            k.startsWith('skillbridge_cached_') ||
+            k.startsWith('sb_cache_')
+          ) {
+            if (!k.includes(`_${userId}`)) {
+              localStorage.removeItem(k);
             }
           }
-          // Remove flat (non-scoped) role/project selection keys
-          localStorage.removeItem('skillbridge_selected_role');
-          localStorage.removeItem('skillbridge_selected_practice_project');
-        } catch {}
-        // Clear the in-memory selected role so it doesn't bleed to the next user
-        skillGapService.clearSession();
-        setUser(u);
-        setSessionExpired(false);
-        localStorage.setItem('skillbridge_auth_user_id', userId);
-        localStorage.setItem('skillbridge_auth_user', JSON.stringify(u));
-      })
-      .catch(() => {
-        // Token expired or invalid — clear storage silently and flag expired
-        localStorage.removeItem(ACCESS_KEY);
-        localStorage.removeItem(REFRESH_KEY);
-        localStorage.removeItem('skillbridge_auth_user_id');
-        localStorage.removeItem('skillbridge_auth_user');
-        setSessionExpired(true);
+        }
+        localStorage.removeItem('skillbridge_selected_role');
+        localStorage.removeItem('skillbridge_selected_practice_project');
+      } catch {}
+      skillGapService.clearSession();
+      setUser(u);
+      setSessionExpired(false);
+      localStorage.setItem('skillbridge_auth_user_id', userId);
+      localStorage.setItem('skillbridge_auth_user', JSON.stringify(u));
+    };
+
+    verifyAndSetUser(token)
+      .catch(async () => {
+        // Access token invalid/expired — try to silently refresh before giving up
+        const refreshToken = localStorage.getItem(REFRESH_KEY);
+        if (!refreshToken) {
+          localStorage.removeItem(ACCESS_KEY);
+          localStorage.removeItem(REFRESH_KEY);
+          localStorage.removeItem('skillbridge_auth_user_id');
+          localStorage.removeItem('skillbridge_auth_user');
+          setSessionExpired(true);
+          return;
+        }
+        try {
+          const res = await fetch(`${API_BASE}/auth/refresh/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh: refreshToken }),
+          });
+          if (!res.ok) throw new Error('refresh_failed');
+          const data = await res.json();
+          const newAccess: string = data.access;
+          if (!newAccess) throw new Error('no_access');
+          localStorage.setItem(ACCESS_KEY, newAccess);
+          if (data.refresh) localStorage.setItem(REFRESH_KEY, data.refresh);
+          // Retry /me/ with the fresh token
+          await verifyAndSetUser(newAccess);
+        } catch {
+          // Refresh token is also expired or blacklisted — full logout
+          localStorage.removeItem(ACCESS_KEY);
+          localStorage.removeItem(REFRESH_KEY);
+          localStorage.removeItem('skillbridge_auth_user_id');
+          localStorage.removeItem('skillbridge_auth_user');
+          setSessionExpired(true);
+        }
       })
       .finally(() => setIsLoading(false));
   }, []);
+
 
   const storeTokens = (resp: AuthResponse) => {
     // Clear any stale previous-user data before setting the new user's session
