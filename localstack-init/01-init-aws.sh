@@ -65,8 +65,7 @@ else
     echo "SQS -> Lambda trigger mapping already active."
 fi
 
-# 5. Database (Neon PostgreSQL is the primary store; DynamoDB removed)
-echo "Neon PostgreSQL is the primary database (ep-wispy-lab-bact4jha-pooler.c-8.eu-central-1.aws.neon.tech). Skipping DynamoDB."
+# 5. Database: Neon PostgreSQL is the primary store (Cloud-managed)
 
 # 7. CloudWatch Metric Alarm
 echo "Configuring CloudWatch error alarm..."

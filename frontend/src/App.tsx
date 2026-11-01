@@ -32,6 +32,7 @@ function AppShell() {
   const [pendingTab, setPendingTab] = useState<string | null>(null);
   const [authPromptMessage, setAuthPromptMessage] = useState<string | null>(null);
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([activeTab]));
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
   // Track visited tabs to preserve them in DOM and prevent redundant reloads
   useEffect(() => {
@@ -57,6 +58,7 @@ function AppShell() {
   }, [isAuthenticated, pendingTab, clearSessionExpired]);
 
   const handleTabChange = (tab: string) => {
+    setIsMobileMenuOpen(false);
     // Overview (dashboard) is always accessible
     if (tab === 'dashboard') {
       setActiveTab('dashboard');
@@ -106,15 +108,17 @@ function AppShell() {
         isAuthenticated={isAuthenticated}
         onOpenAuth={() => handleOpenAuth()}
         onLogout={logout}
+        isMobileOpen={isMobileMenuOpen}
+        onCloseMobile={() => setIsMobileMenuOpen(false)}
       />
 
       <div className="flex-1 flex flex-col min-w-0 min-h-screen overflow-x-hidden">
         {/* Session expired floating notification */}
         {sessionExpired && !isAuthenticated && (
-          <div className="bg-amber-500/10 border-b border-amber-500/20 px-8 py-2.5 text-xs text-amber-700 dark:text-amber-300 flex items-center justify-between z-50">
+          <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 sm:px-8 py-2.5 text-xs text-amber-700 dark:text-amber-300 flex items-center justify-between z-50">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-500" />
-              <span>Your session has expired. Please sign in to resume your work and save progress.</span>
+              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+              <span className="truncate">Your session has expired. Please sign in to resume.</span>
             </div>
             <button
               onClick={() => {
@@ -123,7 +127,7 @@ function AppShell() {
                 setShowAuthModal(true);
                 clearSessionExpired();
               }}
-              className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-semibold rounded-lg text-xs transition-colors shadow-2xs cursor-pointer"
+              className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-semibold rounded-lg text-xs transition-colors shadow-2xs cursor-pointer shrink-0 ml-2"
             >
               Sign In
             </button>
@@ -135,9 +139,10 @@ function AppShell() {
           userName={displayName}
           setActiveTab={handleTabChange}
           onOpenAuth={handleOpenAuth}
+          onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
         />
 
-        <main className="flex-1 p-6 sm:p-8 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-3.5 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 md:pb-8">
           <div style={{ display: activeTab === 'dashboard' ? 'block' : 'none' }}>
             {visitedTabs.has('dashboard') && <DashboardPage setActiveTab={handleTabChange} />}
           </div>
@@ -158,10 +163,35 @@ function AppShell() {
           </div>
         </main>
 
-        <footer className="border-t border-slate-200/80 dark:border-slate-800/80 bg-white/50 dark:bg-[#0e131f]/50 px-8 py-3 text-xs text-slate-400 dark:text-slate-500 flex items-center justify-between">
+        <footer className="border-t border-slate-200/80 dark:border-slate-800/80 bg-white/50 dark:bg-[#0e131f]/50 px-4 sm:px-8 py-3 text-xs text-slate-400 dark:text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left mb-16 md:mb-0">
           <span>SkillBridge AI • AI Career OS</span>
           <span>Evidence-based & deadline-aware planning</span>
         </footer>
+
+        {/* Mobile Sticky Bottom Navigation Bar */}
+        <nav
+          aria-label="Mobile Navigation"
+          className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#0e131f]/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800/80 px-1 py-1.5 flex items-center justify-around shadow-lg md:hidden"
+        >
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => handleTabChange(item.id)}
+                className={`flex flex-col items-center justify-center py-1 px-1.5 rounded-xl text-[10px] font-medium transition-all cursor-pointer ${
+                  isActive
+                    ? 'text-indigo-600 dark:text-cyan-400 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${isActive ? 'text-indigo-600 dark:text-cyan-400' : 'text-slate-400'}`} />
+                <span className="truncate max-w-[50px] mt-0.5">{item.shortLabel || item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
       </div>
 
       {/* Auth Modal Overlay */}

@@ -308,12 +308,12 @@ export default function JobAnalysisPage({ setActiveTab }: JobAnalysisPageProps) 
         <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800/80 bg-white dark:bg-[#0e131f] p-6 flex flex-col space-y-4 shadow-xs">
           {mode === 'job_specific' ? (
             <>
-              <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800/80">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-100 dark:border-slate-800/80">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
                   <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Job Description & Deadline Setup</h2>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   {(jobText || extractedRequirements.length > 0) && (
                     <button
                       type="button"

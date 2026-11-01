@@ -157,8 +157,8 @@ export default function ProfilePage({ setActiveTab: _setActiveTab }: ProfilePage
     if (!newEvidence.skill_name.trim() || !newEvidence.title.trim()) return;
     setEvidenceSaving(true);
     try {
-      const created = await api.addEvidence({ ...newEvidence, user_id: currentUserId });
-      if (created) setEvidenceList(prev => [...prev, created]);
+      const created = (await api.addEvidence({ ...newEvidence, user_id: currentUserId })) as SkillEvidence;
+      if (created) setEvidenceList((prev: SkillEvidence[]) => [...prev, created]);
       setNewEvidence({ skill_name: '', title: '', reference: '', evidence_type: 'self_reported' });
       setShowEvidenceForm(false);
     } catch {

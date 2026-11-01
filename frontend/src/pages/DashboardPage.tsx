@@ -85,7 +85,13 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
   const hasAnalysis = analyses.length > 0;
   const studentName = profile?.name
     ? profile.name.split(' ')[0]
-    : (user?.name ? user.name.split(' ')[0] : (user?.email ? user.email.split('@')[0] : 'Learner'));
+    : (user?.name
+      ? user.name.split(' ')[0]
+      : (user?.full_name
+        ? user.full_name.split(' ')[0]
+        : (user?.username
+          ? user.username.split(' ')[0]
+          : (user?.email ? user.email.split('@')[0] : 'Learner'))));
 
   // Dynamic ATS Score derived from actual Profile, Resume & Verified Project Evidence
   const atsScore = useMemo(() => {

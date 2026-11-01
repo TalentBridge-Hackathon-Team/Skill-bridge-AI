@@ -48,6 +48,7 @@ export interface AuthUser {
   username: string;
   email: string;
   full_name: string;
+  name?: string;
   date_joined: string;
 }
 
@@ -107,6 +108,7 @@ export interface S3UploadResult {
   key: string;
   filename: string;
   s3_url: string;
+  public_url?: string;
   error?: string;
   mock?: boolean;
 }

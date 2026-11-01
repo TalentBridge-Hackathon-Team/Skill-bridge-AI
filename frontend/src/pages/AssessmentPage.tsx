@@ -1037,6 +1037,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
 
   // Dynamic AI-Generated Personalized Syllabus & Rubric State
   const [dynamicSyllabus, setDynamicSyllabus] = useState<{
+    skill_name?: string;
     project_title?: string;
     syllabus_steps: Array<{
       step_number: number;
@@ -3773,7 +3774,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
                 <BookOpen className="w-4 h-4 text-indigo-500 shrink-0" />
                 <span>{activeSkillGap ? `${activeSkillGap} 10-Point Rubric` : '10-Point Rubric'}</span>
               </div>
-              {dynamicSyllabus && (!dynamicSyllabus.skill_name || dynamicSyllabus.skill_name.toLowerCase().trim() === activeSkillGap.toLowerCase().trim()) && (
+              {dynamicSyllabus && (!(dynamicSyllabus as any)?.skill_name || (dynamicSyllabus as any).skill_name.toLowerCase().trim() === activeSkillGap.toLowerCase().trim()) && (
                 <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
                   AI Tailored
                 </span>
@@ -3784,7 +3785,7 @@ export default function AssessmentPage({ setActiveTab }: AssessmentPageProps) {
             </p>
 
             <ul className="space-y-2.5 text-xs">
-              {((dynamicSyllabus && (!dynamicSyllabus.skill_name || dynamicSyllabus.skill_name.toLowerCase().trim() === activeSkillGap.toLowerCase().trim())
+              {((dynamicSyllabus && (!(dynamicSyllabus as any)?.skill_name || (dynamicSyllabus as any).skill_name.toLowerCase().trim() === activeSkillGap.toLowerCase().trim())
                 ? dynamicSyllabus.rubric
                 : null) || activePracticeProject?.rubric_breakdown || activePreset.rubric).map((item: any, idx: number) => {
                 const criterionName = item.name || item.criterion || item.title || item.criterion_name || `Criterion ${idx + 1}`;

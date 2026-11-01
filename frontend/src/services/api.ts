@@ -230,7 +230,7 @@ export const api = {
   updateProfile: (data: Partial<UserProfile>): Promise<UserProfile> =>
     apiFetch<UserProfile>('/profiles/me/', { method: 'PUT', body: JSON.stringify(data) }),
 
-  addEvidence: (data: Record<string, unknown>): Promise<unknown> =>
+  addEvidence: (data: Record<string, unknown>): Promise<any> =>
     apiFetch('/profiles/me/evidence/', { method: 'POST', body: JSON.stringify(data) }),
 
   uploadResume: (file: File, userId: string = 'demo_user'): Promise<ResumeUploadResponse> => {

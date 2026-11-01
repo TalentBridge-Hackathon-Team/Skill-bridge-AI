@@ -60,18 +60,20 @@ class RegisterView(APIView):
         # can find it immediately — but do NOT assign any role or skills.
         # The user fills those in themselves via the Profile page.
         try:
-            from apps.profiles.models import UserProfile  # noqa: PLC0415
+            from django.apps import apps as django_apps
 
-            full_name = f"{user.first_name} {user.last_name}".strip() or user.username
-            UserProfile.objects.get_or_create(
-                user_id=str(user.id),
-                defaults={
-                    "name": full_name,
-                    "target_role": "",
-                    "experience_level": "Entry Level",
-                    "skills": [],
-                },
-            )
+            UserProfile = django_apps.get_model("profiles", "UserProfile")
+            if UserProfile is not None:
+                full_name = f"{user.first_name} {user.last_name}".strip() or user.username
+                UserProfile.objects.get_or_create(
+                    user_id=str(user.id),
+                    defaults={
+                        "name": full_name,
+                        "target_role": "",
+                        "experience_level": "Entry Level",
+                        "skills": [],
+                    },
+                )
         except Exception as exc:  # noqa: BLE001
             # Profile creation failure must not block registration
             logger.warning("Could not auto-create UserProfile for user %s: %s", user.id, exc)

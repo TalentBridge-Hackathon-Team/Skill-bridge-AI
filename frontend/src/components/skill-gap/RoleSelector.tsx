@@ -71,7 +71,7 @@ export default function RoleSelector({
     <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800/80 bg-white dark:bg-[#0e131f] p-5 shadow-xs transition-all">
       {/* Top Mode Filter Bar (Mode A vs Mode B) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 mb-4 gap-3">
-        <div className="flex items-center gap-1 p-1 bg-slate-100/80 dark:bg-slate-900/90 rounded-xl border border-slate-200/60 dark:border-slate-800/60">
+        <div className="flex items-center gap-1 p-1 bg-slate-100/80 dark:bg-slate-900/90 rounded-xl border border-slate-200/60 dark:border-slate-800/60 overflow-x-auto max-w-full">
           <button
             type="button"
             onClick={() => onSelectModeFilter('all')}
