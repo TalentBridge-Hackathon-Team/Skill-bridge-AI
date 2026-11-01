@@ -9,7 +9,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { api } from '../services/api';
-import { skillGapService } from '../services/skillGapService';
+import { skillGapService, cleanRoleTitle } from '../services/skillGapService';
 import { useAuth } from '../context/AuthContext';
 import type { UserProfile, JobAnalysis, RoadmapTask } from '../types';
 
@@ -98,6 +98,13 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
     return String(Math.min(95, score));
   }, [profile, hasResume]);
 
+  const activeRoleTitle = useMemo(() => {
+    if (analyses.length > 0 && analyses[0].role_title) {
+      return cleanRoleTitle(analyses[0].role_title, analyses[0].job_text, analyses[0].requirements);
+    }
+    return null;
+  }, [analyses]);
+
   const displayMatchScore = matchScore !== null ? `${matchScore}%` : (hasAnalysis ? '78%' : '--');
   const displayTaskScore = latestTaskScore !== null ? `${latestTaskScore}/10` : '--';
   const completedRoadmapTasks = roadmapTasks.filter(t => t.status === 'completed').length;
@@ -168,8 +175,13 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
             <div className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight my-2">
               {displayMatchScore}
             </div>
-            <div className="text-xs font-medium text-slate-400 dark:text-slate-500">
-              JD Match
+            <div className="text-xs font-medium text-slate-400 dark:text-slate-500 flex items-center justify-between">
+              <span>JD Match</span>
+              {activeRoleTitle && (
+                <span className="text-[10px] text-cyan-500 dark:text-cyan-400 font-medium truncate max-w-[130px]" title={activeRoleTitle}>
+                  {activeRoleTitle}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -239,7 +251,7 @@ export default function DashboardPage({ setActiveTab }: DashboardPageProps) {
               <div className="py-4 flex items-center justify-between text-xs sm:text-sm">
                 <span className="text-slate-700 dark:text-slate-300 font-medium">JD match rate</span>
                 <span className="text-slate-400 dark:text-slate-500 font-medium">
-                  {hasAnalysis ? `${displayMatchScore} Estimated Match` : 'No data'}
+                  {hasAnalysis ? `${displayMatchScore} Estimated Match${activeRoleTitle ? ` • ${activeRoleTitle}` : ''}` : 'No data'}
                 </span>
               </div>
               <div className="py-4 flex items-center justify-between text-xs sm:text-sm">
